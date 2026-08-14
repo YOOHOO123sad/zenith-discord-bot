@@ -22,6 +22,50 @@ Routes
 const fs = require("fs");
 const path = require("path");
 const { generateCode } = require("./verifyApi");
+
+function fetchMinecraftUUID(username) {
+  return new Promise((resolve, reject) => {
+    const https = require('https');
+    const options = {
+      hostname: 'api.mojang.com',
+      path: `/users/profiles/minecraft/${encodeURIComponent(username)}`,
+      method: 'GET',
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const parsed = JSON.parse(data);
+            resolve(parsed.id); // Returns the UUID with hyphens
+          } catch (e) {
+            reject(new Error('Invalid JSON response from Mojang API'));
+          }
+        } else if (res.statusCode === 204) {
+          resolve(null); // No content means user not found
+        } else {
+          reject(new Error(`Mojang API returned status ${res.statusCode}`));
+        }
+      });
+    });
+
+    req.on('error', (e) => {
+      reject(e);
+    });
+
+    req.setTimeout(5000, () => {
+      req.destroy();
+      reject(new Error('Request to Mojang API timed out'));
+    });
+
+    req.end();
+  });
+}
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -842,6 +886,17 @@ if (interaction.isChatInputCommand()) {
     );
 
     // =========================
+    // Resolve Minecraft UUID from username for /confirm command
+    // =========================
+    let uuid = null;
+    try {
+        uuid = await fetchMinecraftUUID(minecraftName);
+    } catch (error) {
+        console.error("Error fetching Minecraft UUID in /confirm command:", error);
+        // Continue with null UUID - the onVerified handler should handle this
+    }
+
+    // =========================
     // เรียก onVerified
     // =========================
 
@@ -851,7 +906,8 @@ if (interaction.isChatInputCommand()) {
             targetUser.id,
             minecraftName,
             oldData?.imageUrl || "",
-            isTargetTester === true
+            isTargetTester === true,
+            uuid
         );
 
     }
@@ -1953,7 +2009,8 @@ if (interaction.isButton()) {
                 userId,
                 request.minecraftName,
                 playerData.imageUrl,
-                request.tester
+                request.tester,
+                request.minecraftUuid
             );
         }
 
@@ -2109,6 +2166,29 @@ if (interaction.customId === "verify_modal") {
         }
 
         // ========================================
+        // ตรวจชื่อ Minecraft จาก Mojang API
+        // ========================================
+
+        let minecraftUuid;
+        try {
+            minecraftUuid = await fetchMinecraftUUID(minecraftName);
+            if (!minecraftUuid) {
+                await interaction.reply({
+                    content: "ไม่พบผู้เล่น Minecraft นี้ กรุณาตรวจสอบชื่อใหม่",
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+        } catch (error) {
+            console.error("Error fetching Minecraft UUID:", error);
+            await interaction.reply({
+                content: "เกิดข้อผิดพลาดในการตรวจสอบชื่อ Minecraft กรุณาลองใหม่ภายหลัง",
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
+
+        // ========================================
         // ตรวจว่ายืนยันแล้ว
         // ========================================
 
@@ -2141,6 +2221,7 @@ if (interaction.customId === "verify_modal") {
                 discordId: interaction.user.id,
                 discordUsername: interaction.user.username,
                 minecraftName: minecraftName,
+                minecraftUuid: minecraftUuid,
                 tester: isTester,
                 time: Date.now()
             }
@@ -3103,7 +3184,8 @@ await registerCommands();
         discordId,
         gameName,
         imageUrl,
-        tester
+        tester,
+        uuid
     ) => {
 
         console.log("===== ON VERIFIED =====");
@@ -3167,6 +3249,7 @@ if (member) {
     const playerData = {
         gameName: gameName,
         imageUrl: imageUrl || oldData?.imageUrl || "",
+        uuid: uuid,
         tier: oldData?.tier || "-",
         points: oldData?.points || "0",
         tester: tester === true,
