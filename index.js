@@ -22,6 +22,7 @@ Routes
 const fs = require("fs");
 const path = require("path");
 const { generateCode } = require("./verifyApi");
+const apiClient = require("./apiClient");
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -2488,7 +2489,7 @@ if (interaction.customId === "tier_score_modal") {
         }
 
         // ========================================
-        // บันทึกข้อมูล
+        // บันทึกข้อมูลในท้องถิ่นสำหรับ UI ทันที
         // ========================================
 
         player.tester =
@@ -2499,7 +2500,57 @@ if (interaction.customId === "tier_score_modal") {
             player
         );
 
-        saveVerifiedUsers();
+        // ========================================
+        // บันทึกการแข่งขันไปยัง API (แหล่งที่มาของความจริง)
+        // ========================================
+        try {
+          // ตั้งค่าการโต้ตอบกับ Discord สำหรับการตรวจสอบความปลอดภัยของ API
+          apiClient.setCurrentDiscordInteractionId(interaction.id);
+
+          // รับโทเค็น API
+          const token = await apiClient.getApiToken();
+
+          // ตรวจสอบหรือสร้างผู้เล่นและทดสอบผ่าน API
+          const testedUser = await client.users.fetch(picked.testedUserId);
+          const testerUser = await client.users.fetch(picked.testerUserId);
+
+          await apiClient.getOrCreatePlayer(token, testedUser);
+          await apiClient.getOrCreatePlayer(token, testerUser);
+
+          // สร้างข้อมูลการแข่งขันตามสคีมา MatchCreate
+          const matchData = {
+            applicant: picked.testedUserId,    // Discord ID
+            tester: picked.testerUserId,       // Discord ID
+            winner: picked.winnerSide === "applicant"
+              ? picked.testedUserId
+              : picked.testerUserId,
+            loser: picked.winnerSide === "applicant"
+              ? picked.testerUserId
+              : picked.testedUserId,
+            score: `${playerScore}-${testerScore}`, // Format: "playerScore-testerScore"
+            tier: picked.tier,                 // Already uppercase (HT1, LT1, etc.)
+            game_mode: picked.mode.toLowerCase()  // Convert to lowercase (cpvp, spvp, etc.)
+          };
+
+          // ส่งการแข่งขันไปยัง API
+          await apiClient.createMatch(token, matchData);
+
+          // ตัวเลือก: อัปเดตสถานะท้องถิ่นด้วยข้อมูลจาก API เพื่อให้สอดคล้องกัน
+          // ในปัจจุบันเราจะเก็บสถานะท้องถิ่นไว้สำหรับ UI ทันที และเชื่อมั่นว่า API เป็นแหล่งที่มาของความจริง
+          console.log(`บันทึกการแข่งขันไปยัง API สำเร็จ: ${JSON.stringify(matchData)}`);
+        } catch (apiError) {
+          console.error("===== API ERROR =====", apiError);
+          // แสดงข้อผิดพลาดให้ผู้ใช้เห็น แต่ดำเนินการต่อเนื่องจากเราได้อัปเดตสถานะท้องถิ่นแล้วสำหรับ UI ทันที
+          await interaction.editReply({
+            content:
+              `บันทึกผลการทดสอบเรียบร้อยแล้วในท้องถิ่น แต่เกิดข้อผิดพลาดในการบันทึกไปยังศูนย์กลาง\n` +
+              `กรุณาลองใหม่ภายหลังหรือติดต่อผู้ดูแลระบบ\n\n` +
+              `ข้อผิดพลาด: ${apiError.message}`,
+            flags: MessageFlags.Ephemeral
+          });
+          // ฟอลล์เบค: บันทึกผู้ใช้ที่ยืนยันแล้วในท้องถิ่นเป็นการสำรอง
+          saveVerifiedUsers();
+        }
 
         console.log(
             "===== SCORE UPDATE ====="
@@ -2568,14 +2619,14 @@ if (interaction.customId === "tier_score_modal") {
         // ========================================
 
         const winner =
-            picked.winnerSide === "tester"
-                ? `<@${picked.testerUserId}>`
-                : `<@${picked.testedUserId}>`;
-
-        const loser =
-            picked.winnerSide === "tester"
+            picked.winnerSide === "applicant"
                 ? `<@${picked.testedUserId}>`
                 : `<@${picked.testerUserId}>`;
+
+        const loser =
+            picked.winnerSide === "applicant"
+                ? `<@${picked.testerUserId}>`
+                : `<@${picked.testedUserId}>`;
 
         // ========================================
         // Result Embed
