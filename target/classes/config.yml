@@ -1,5 +1,0 @@
-# URL ของบอท Discord (ต้องเป็น URL สาธารณะที่เซิร์ฟเวอร์นี้เข้าถึงได้)
-# ตัวอย่าง: https://your-bot-domain.com  หรือ  https://xxxx.ngrok-free.app
-webhook-url: "https://not-surprised-part-parallel.trycloudflare.com"
-# ต้องตรงกับค่า VERIFY_SECRET ในฝั่งบอท Discord ห้ามให้คนอื่นรู้
-secret-key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"

@@ -1,3 +1,14 @@
+# Node.js
 node_modules/
 .env
+npm-debug.log*
+
+# Maven / Java
+target/
+*.class
+
+# VS Code
+.vscode/
+
+# Logs
 *.log
