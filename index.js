@@ -23,6 +23,28 @@ const fs = require("fs");
 const path = require("path");
 const { generateCode } = require("./verifyApi");
 
+function normalizeMinecraftUUID(uuid) {
+  if (!uuid) return null;
+
+  // Remove hyphens if present
+  const clean = uuid.replace(/[-]/g, '');
+
+  // Validate: must be 32 hex characters
+  if (!/^[0-9a-f]{32}$/i.test(clean)) {
+    return null;
+  }
+
+  // Convert to lowercase for canonical format
+  const lower = clean.toLowerCase();
+
+  // Format as canonical UUID: 8-4-4-4-12
+  return lower.substring(0, 8) + '-' +
+         lower.substring(8, 12) + '-' +
+         lower.substring(12, 16) + '-' +
+         lower.substring(16, 20) + '-' +
+         lower.substring(20, 32);
+}
+
 function fetchMinecraftUUID(username) {
   return new Promise((resolve, reject) => {
     const https = require('https');
@@ -41,7 +63,12 @@ function fetchMinecraftUUID(username) {
         if (res.statusCode === 200) {
           try {
             const parsed = JSON.parse(data);
-            resolve(parsed.id); // Returns the UUID with hyphens
+            const uuid = normalizeMinecraftUUID(parsed.id);
+            if (uuid) {
+              resolve(uuid);
+            } else {
+              resolve(null); // Invalid UUID format
+            }
           } catch (e) {
             reject(new Error('Invalid JSON response from Mojang API'));
           }
@@ -854,6 +881,18 @@ if (interaction.isChatInputCommand()) {
 
     loadVerifiedUsers();
 
+    // =========================
+    // Resolve Minecraft UUID from username (required)
+    // =========================
+    const uuid = await fetchMinecraftUUID(minecraftName);
+    if (!uuid) {
+        await interaction.editReply({
+            content: "ไม่พบผู้เล่น Minecraft นี้ กรุณาตรวจสอบชื่อใหม่",
+            flags: MessageFlags.Ephemeral
+        });
+        return;
+    }
+
     const oldData =
         verifiedUsers.get(targetUser.id);
 
@@ -884,17 +923,6 @@ if (interaction.isChatInputCommand()) {
     pendingVerifications.delete(
         targetUser.id
     );
-
-    // =========================
-    // Resolve Minecraft UUID from username for /confirm command
-    // =========================
-    let uuid = null;
-    try {
-        uuid = await fetchMinecraftUUID(minecraftName);
-    } catch (error) {
-        console.error("Error fetching Minecraft UUID in /confirm command:", error);
-        // Continue with null UUID - the onVerified handler should handle this
-    }
 
     // =========================
     // เรียก onVerified
@@ -1979,7 +2007,8 @@ if (interaction.isButton()) {
                 request.minecraftName,
 
            imageUrl:
-    `https://minotar.net/helm/${encodeURIComponent(request.minecraftName)}/128.png`,    
+    `https://minotar.net/helm/${encodeURIComponent(request.minecraftName)}/128.png`,
+            uuid: request.minecraftUuid,
             tier:
                 oldData?.tier || "-",
 
