@@ -2511,11 +2511,33 @@ if (interaction.customId === "tier_score_modal") {
           const token = await apiClient.getApiToken();
 
           // ตรวจสอบหรือสร้างผู้เล่นและทดสอบผ่าน API
-          const testedUser = await client.users.fetch(picked.testedUserId);
-          const testerUser = await client.users.fetch(picked.testerUserId);
+          // Fetch Discord users for both participants
+          const testedDiscordUser = await client.users.fetch(picked.testedUserId);
+          const testerDiscordUser = await client.users.fetch(picked.testerUserId);
 
-          await apiClient.getOrCreatePlayer(token, testedUser);
-          await apiClient.getOrCreatePlayer(token, testerUser);
+          // Get verified user data from verifiedUsers map
+          const testedVerifiedUser = verifiedUsers.get(picked.testedUserId);
+          const testerVerifiedUser = verifiedUsers.get(picked.testerUserId);
+
+          // Verify that we have verified user data for both (with UUID)
+          if (!testedVerifiedUser || !testedVerifiedUser.uuid) {
+            await interaction.editReply({
+              content: "ไม่พบข้อมูลผู้เล่นที่ยืนยันแล้วสำหรับผู้เล่น",
+              flags: MessageFlags.Ephemeral
+            });
+            return;
+          }
+          if (!testerVerifiedUser || !testerVerifiedUser.uuid) {
+            await interaction.editReply({
+              content: "ไม่พบข้อมูลผู้เล่นที่ยืนยันแล้วสำหรับผู้ทดสอบ",
+              flags: MessageFlags.Ephemeral
+            });
+            return;
+          }
+
+          // Create or get players using verified UUID
+          await apiClient.getOrCreatePlayer(token, testedVerifiedUser, testedDiscordUser);
+          await apiClient.getOrCreatePlayer(token, testerVerifiedUser, testerDiscordUser);
 
           // สร้างข้อมูลการแข่งขันตามสคีมา MatchCreate
           const matchData = {
