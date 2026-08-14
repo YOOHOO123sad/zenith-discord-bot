@@ -1,0 +1,13 @@
+name: NethpotVerify
+version: 1.0
+
+main: verify.Main
+
+api-version: '1.21'
+
+author: CAMPER
+
+commands:
+  verify:
+    description: Verify Discord Account
+    usage: /verify <code>

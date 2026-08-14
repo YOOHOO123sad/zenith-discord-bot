@@ -9,6 +9,11 @@ public class Main extends JavaPlugin {
     @Override
     public void onEnable() {
 
+        saveDefaultConfig();
+
+        getLogger().info("Config folder = " + getDataFolder().getAbsolutePath());
+        getLogger().info("Webhook = " + getConfig().getString("webhook-url"));
+
         verifyManager = new VerifyManager(this);
 
         getCommand("verify").setExecutor(new VerifyCommand(this));
@@ -19,5 +24,4 @@ public class Main extends JavaPlugin {
     public VerifyManager getVerifyManager() {
         return verifyManager;
     }
-
 }

@@ -23,7 +23,7 @@ public class VerifyCommand implements CommandExecutor {
             player.sendMessage("§cใช้: /verify <code>");
             return true;
         }
-
+player.sendMessage("§aVerifyCommand ทำงานแล้ว");
         String code = args[0].trim();
 
         if (plugin.getVerifyManager().isVerified(player.getUniqueId())) {

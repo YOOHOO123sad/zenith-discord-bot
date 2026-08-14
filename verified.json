@@ -1,49 +1,192 @@
 {
-  "906517841145110528": {
-    "gameName": "Dew_arisa",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525726083562082304/Screenshot_2026-07-06_193342.png?ex=6a546ea4&is=6a531d24&hm=8d5f26b0b24f17e40880aa9db9d476383b54d0ebba7d4d0af22fdcd8a6cf9b2d&"
-  },
-  "885100730095124490": {
-    "gameName": "k2ne",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525734682640125962/image.png?ex=6a5476a7&is=6a532527&hm=c946202dba37eab43e666de7300df04bc3ad64f6d8c2726fc462f886c834a51e&"
-  },
-  "1309902028603920436": {
-    "gameName": "nonkubz_",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525735164687421500/Screenshot_2026-07-12-12-26-27-77_18ef886008aeac98d3b32feccbe7d3f9.jpg?ex=6a54771a&is=6a53259a&hm=957038150a0b77810ca24dd2ebebe3ead35d8855c376d2e6caafab647bd65581&"
-  },
-  "1393964848060305449": {
-    "gameName": "BOOKkubPOM",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525735223856336956/image.png?ex=6a547728&is=6a5325a8&hm=dd435985e2e19b08b9a141a17224533c8ca99891771d4954daca53f12a1f3322&"
-  },
-  "1170252268319285268": {
-    "gameName": "GORNZ_",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525735319285272718/image.png?ex=6a54773e&is=6a5325be&hm=c012c2797d1ebf7ec8b9c5006d0206e6c2f09d352c88fadb89920717c7338a5f&"
-  },
-  "1319825188967288933": {
-    "gameName": "Stainds",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525738729996816454/image.png?ex=6a547a6c&is=6a5328ec&hm=99320c4e51c45654f07a47569c0944914201c6831548a57f5dc1ac55e3a2eaa3&"
-  },
-  "1444313400355323914": {
-    "gameName": "Exrtza",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1525815362879230093/IMG_0446.png?ex=6a54c1ca&is=6a53704a&hm=8e5cf0c95316db45bdf27dd19eb230f41c9c99392877f9bd43234a4c762907f9&",
-    "tier": "LT4",
-    "points": "3"
-  },
   "1497115325068476527": {
     "gameName": "Whalevv12345z",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1526205794167689348/image.png?ex=6a562d68&is=6a54dbe8&hm=f5bbdbe73d154bc80c494514b270d0ef95f0bd9be0f50401681d8e5c13a02216&"
+    "imageUrl": "https://mc-heads.net/avatar/+Whalevv12345z/512",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
   },
-  "1218952102999756803": {
-    "gameName": "Phoo2568",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1527279142867828756/IMG_1759.jpg?ex=6a5a150b&is=6a58c38b&hm=94891a75e7c817a64d5df12c3c15e1f06cad93407e364e0b9437d3e4314583e8&"
+  "971945449512661032": {
+    "gameName": "walliboyuop",
+    "imageUrl": "https://mc-heads.net/avatar/walliboyuop/512",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
   },
-  "1077208520379867196": {
-    "gameName": "khunny",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1527306039962370159/image.png?ex=6a5a2e17&is=6a58dc97&hm=6849b2462c0f4c38f1704259309396e714b73e6d82013ff40456d2c878f85557&"
+  "1464111020468604929": {
+    "gameName": "Clowe3Zzz",
+    "imageUrl": "https://mc-heads.net/avatar/Clowe3Zzz/512",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "992365422814957659": {
+    "gameName": "Seiki",
+    "imageUrl": "https://mc-heads.net/avatar/+Seiki/512",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "1444313400355323914": {
+    "gameName": "Exrtze",
+    "imageUrl": "https://mc-heads.net/avatar/Exrtza/512",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1094574548382396556": {
+    "gameName": "Torokung01",
+    "imageUrl": "https://mc-heads.net/avatar/Torokung01/512",
+    "tier": "HT5",
+    "points": "2",
+    "tester": false,
+    "confirmed": true
+  },
+  "893118412111372318": {
+    "gameName": "Gu_ntsu_Z",
+    "imageUrl": "https://mc-heads.net/avatar/Gu_ntsu_Z/512",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "1250807029262585900": {
+    "gameName": "MusVE",
+    "tier": "-",
+    "points": "0",
+    "tester": false
+  },
+  "1259374460503326832": {
+    "gameName": "oppaomsiri",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1273244831384207431": {
+    "gameName": "ntang_xdd",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "1047852320089722960": {
+    "gameName": "Navakub",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1299213158065639516": {
+    "gameName": "TAATAAH",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "906517841145110528": {
+    "gameName": "Dew_arisa",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "844935455739871282": {
+    "gameName": "PhumPhumShop",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1306111178728017942": {
+    "gameName": "iceThai",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1293633259816878154": {
+    "gameName": "test_bob",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1309902028603920436": {
+    "gameName": "paikub",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1405907224164827166": {
+    "gameName": "PUNGNX",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
   },
   "1408359433771290715": {
-    "gameName": "BOT TEST",
-    "imageUrl": "https://cdn.discordapp.com/attachments/1524015131724353566/1527350576134881320/image.png?ex=6a5a5792&is=6a590612&hm=762da93876a7f2deec02e282f1a832d84014995246c1311dfef314a584426c1d&",
-    "tester": false
+    "gameName": "Test",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1226024988763488318": {
+    "gameName": "SAWADEEPUN",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "979004914858614804": {
+    "gameName": "ei448XD",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "1436343932140130426": {
+    "gameName": "Jin_CZB",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "1120275086700724294": {
+    "gameName": "ShockSpare",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1480804998618025984": {
+    "gameName": "roi_kazumaki",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
   }
 }
