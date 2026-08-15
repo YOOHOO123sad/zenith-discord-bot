@@ -372,9 +372,6 @@ function buildEmbed(channelId) {
     const testerText = state.onlineTesters.size > 0
         ? Array.from(state.onlineTesters).map((id) => "<@" + id + ">").join(", ")
         : "ไม่มี";
-    const queueText = state.queue.length === 0
-        ? "ไม่มีคน"
-        : state.queue.map((item, i) => (i + 1) + ". <@" + item.userId + "> — " + item.detail).join("\n");
     const testingText = state.currentTesting
         ? "<@" + state.currentTesting.userId + "> — " + state.currentTesting.detail + (state.currentTesting.channelId ? "\nห้อง: <#" + state.currentTesting.channelId + ">" : "")
         : "ไม่มีใครกำลังทดสอบ";
@@ -405,22 +402,16 @@ return new EmbedBuilder()
             { name: "Tester ออนไลน์ (" + state.onlineTesters.size + ")", value: testerText },
             { name: "เทสเสร็จแล้ว", value: finishedText },
             { name: "กำลังทดสอบ", value: testingText },
-            { name: "คิว (" + state.queue.length + "/" + maxQueue + ")", value: queueText },
         );
 }
 
 function buildButtons(channelId) {
     const state = getState(channelId);
 
+    // จองได้เมื่อมี Tester เข้าเวร
+    // และยังไม่มีคนกำลังทดสอบ
     const queueDisabled =
         state.onlineTesters.size === 0 ||
-        state.queue.length >= maxQueue;
-
-    // เรียกคิวได้เมื่อ:
-    // 1. มีคนอยู่ในคิว
-    // 2. ไม่มีคนกำลังทดสอบ
-    const nextDisabled =
-        state.queue.length === 0 ||
         state.currentTesting !== null;
 
     const doneDisabled =
@@ -435,7 +426,7 @@ function buildButtons(channelId) {
 
         new ButtonBuilder()
             .setCustomId("cancel_queue")
-            .setLabel("ยกเลิกคิว")
+            .setLabel("ยกเลิก")
             .setStyle(ButtonStyle.Danger),
 
         new ButtonBuilder()
@@ -445,12 +436,6 @@ function buildButtons(channelId) {
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId("call_next")
-            .setLabel("เรียกคิวถัดไป")
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(nextDisabled),
-
         new ButtonBuilder()
             .setCustomId("finish_testing")
             .setLabel("เทสเสร็จแล้ว")
@@ -829,17 +814,17 @@ if (interaction.isChatInputCommand()) {
         verifiedUsers.get(targetUser.id);
 
     const playerData = {
-        gameName: minecraftName,
-        imageUrl:
-            oldData?.imageUrl || "",
-        tier:
-            oldData?.tier || "-",
-        points:
-            oldData?.points || "0",
-        tester:
-            isTargetTester === true,
-        confirmed: true
-    };
+    gameName: minecraftName,
+    imageUrl:
+    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(minecraftName)}/full`,
+    tier:
+        oldData?.tier || "-",
+    points:
+        oldData?.points || "0",
+    tester:
+        isTargetTester === true,
+    confirmed: true
+};
 
     verifiedUsers.set(
         targetUser.id,
@@ -893,7 +878,170 @@ if (interaction.isChatInputCommand()) {
     return;
 }
 }
+// =====================================================
+// /unconfirm
+// =====================================================
+if (interaction.commandName === "unconfirm") {
 
+    await interaction.deferReply({
+        flags: MessageFlags.Ephemeral
+    });
+
+    const member = interaction.member;
+
+    // =========================
+    // ตรวจ Tester / Admin
+    // =========================
+
+    const isTester =
+        member.roles.cache.some(
+            role => role.name === testerRoleName
+        );
+
+    const isAdmin =
+        member.roles.cache.some(
+            role => role.name === adminRoleName
+        ) ||
+        member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+        );
+
+    if (!isTester && !isAdmin) {
+        await interaction.editReply({
+            content:
+                "คำสั่งนี้ใช้ได้เฉพาะ Tester และ Admin เท่านั้น"
+        });
+        return;
+    }
+
+    // =========================
+    // ผู้เล่นเป้าหมาย
+    // =========================
+
+    const targetUser =
+        interaction.options.getUser("user");
+
+    if (!targetUser) {
+        await interaction.editReply({
+            content: "กรุณาเลือกผู้เล่น"
+        });
+        return;
+    }
+
+    // =========================
+    // โหลดข้อมูลล่าสุด
+    // =========================
+
+    loadVerifiedUsers();
+    loadPlayerMessages();
+
+    const oldData =
+        verifiedUsers.get(targetUser.id);
+
+    if (!oldData) {
+        await interaction.editReply({
+            content:
+                `<@${targetUser.id}> ยังไม่ได้ยืนยันตัวตน`
+        });
+        return;
+    }
+
+    // =====================================================
+    // ลบ Embed ข้อมูลผู้เล่น
+    // =====================================================
+
+    const messageId =
+        playerMessages.get(targetUser.id);
+
+    if (messageId) {
+
+        // ถ้าเดิมเป็น Tester ให้ลบจากห้อง Tester
+        const oldChannelId =
+            oldData.tester === true
+                ? TESTER_INFO_CHANNEL_ID
+                : PLAYER_INFO_CHANNEL_ID;
+
+        const infoChannel =
+            await interaction.guild.channels
+                .fetch(oldChannelId)
+                .catch(() => null);
+
+        if (infoChannel) {
+
+            const oldMessage =
+                await infoChannel.messages
+                    .fetch(messageId)
+                    .catch(() => null);
+
+            if (oldMessage) {
+
+                await oldMessage
+                    .delete()
+                    .catch(err => {
+                        console.error(
+                            "ลบข้อมูลผู้เล่นไม่สำเร็จ:",
+                            err
+                        );
+                    });
+
+                console.log(
+                    `ลบข้อมูลผู้เล่นใน Channel ${oldChannelId}: ${messageId}`
+                );
+            }
+        }
+
+        // ลบ Message ID ที่จำไว้
+        playerMessages.delete(targetUser.id);
+        savePlayerMessages();
+    }
+
+    // =====================================================
+    // ลบข้อมูลยืนยัน
+    // =====================================================
+
+    verifiedUsers.delete(targetUser.id);
+    saveVerifiedUsers();
+
+    // ลบคำขอยืนยันที่ค้างอยู่
+    pendingVerifications.delete(targetUser.id);
+
+    // =====================================================
+    // เปลี่ยนชื่อ Discord กลับ
+    // =====================================================
+
+    const targetMember =
+        await interaction.guild.members
+            .fetch(targetUser.id)
+            .catch(() => null);
+
+    if (targetMember) {
+
+        await targetMember
+            .setNickname(null)
+            .catch(err => {
+                console.log(
+                    "ไม่สามารถคืนชื่อ Discord ได้:",
+                    err.message
+                );
+            });
+    }
+
+    // =====================================================
+    // สำเร็จ
+    // =====================================================
+
+    await interaction.editReply({
+        content:
+            `ยกเลิกการยืนยันของ <@${targetUser.id}> เรียบร้อยแล้ว\n` +
+            `🗑️ลบข้อมูลจากห้องข้อมูลผู้เล่นแล้ว`
+    });
+
+    console.log(
+        `UNCONFIRM: ${targetUser.tag} (${targetUser.id})`
+    );
+
+    return;
+}
     if (interaction.isButton()) {
         
         const member = interaction.member;
@@ -1208,47 +1356,111 @@ if (lastTested) {
     }
 }
 
-            const alreadyInQueue = state.queue.some((item) => item.userId === interaction.user.id);
-            if (alreadyInQueue) {
-               await interaction.editReply({ content: "คุณอยู่ในคิวอยู่แล้ว",  flags: MessageFlags.Ephemeral});
-                return;
-            }
+// ========================================
+// ตรวจว่ามีคนกำลังทดสอบอยู่หรือไม่
+// ========================================
 
-            if (state.queue.length >= maxQueue) {
-                await interaction.editReply({ content: "คิวเต็มแล้ว", flags: MessageFlags.Ephemeral});
-                return;
-            }
+if (state.currentTesting) {
+    await interaction.editReply({
+        content: "ตอนนี้มีคนกำลังทดสอบอยู่ กรุณารอให้การทดสอบเสร็จก่อน"
+    });
+    return;
+}
 
-state.queue.push({
+// ========================================
+// หา Tester ที่กำลังเข้าเวร
+// ========================================
+
+const testerIds = Array.from(state.onlineTesters);
+
+if (testerIds.length === 0) {
+    await interaction.editReply({
+        content: "ตอนนี้ไม่มี Tester เข้าเวร"
+    });
+    return;
+}
+
+// เลือก Tester คนแรกที่กำลังเข้าเวร
+const testerId = testerIds[0];
+
+const queueItem = {
     userId: interaction.user.id,
     detail: "รอทดสอบ",
     mode
-});
+};
+
 // ========================================
-// อัปเดต Embed หลักทันที
+// ล็อกผู้เล่นเป็นกำลังทดสอบทันที
+// ป้องกันคนอื่นกดพร้อมกัน
 // ========================================
 
+state.currentTesting = {
+    userId: interaction.user.id,
+    testerId: testerId,
+    detail: "รอทดสอบ",
+    mode,
+    channelId: null
+};
+
+let testRoom;
+
+try {
+
+    // ========================================
+    // สร้างห้อง Test ทันที
+    // ========================================
+
+    testRoom = await createTestRoom(
+        interaction.guild,
+        testerId,
+        queueItem,
+        interaction.channel
+    );
+
+    state.currentTesting.channelId = testRoom.id;
+
+    // ========================================
+    // บันทึก Active Test
+    // ========================================
+
+    activeTests.set(testRoom.id, {
+        userId: interaction.user.id,
+        testerId: testerId,
+        detail: "รอทดสอบ",
+        mode,
+        channelId: testRoom.id,
+        queueChannelId: interaction.channelId
+    });
+
+} catch (err) {
+
+    console.error("สร้างห้อง Test ไม่สำเร็จ:", err);
+
+    // ถ้าสร้างห้องไม่สำเร็จ ให้คืนสถานะว่าง
+    state.currentTesting = null;
+
+    await interaction.editReply({
+        content: "ไม่สามารถสร้างห้องทดสอบได้ กรุณาลองใหม่อีกครั้ง"
+    });
+
+    return;
+}
 let mainMessage = null;
 
 if (state.mainMessageId) {
-
     mainMessage = await interaction.channel.messages
         .fetch(state.mainMessageId)
         .catch(err => {
-
             console.log(
                 "⚠️ Main Message เดิมหาไม่เจอ:",
                 state.mainMessageId
             );
-
             return null;
         });
 }
-
 // ========================================
 // ถ้า Main Message ถูกลบ → สร้างใหม่
 // ========================================
-
 if (!mainMessage) {
 
     console.log(
@@ -1294,7 +1506,10 @@ await mainMessage.edit({
 });
 
 await interaction.editReply({
-    content: "จองคิวเรียบร้อยแล้ว"
+    content:
+        `เริ่มการทดสอบทันที!\n` +
+        `Tester: <@${testerId}>\n` +
+        `ห้องทดสอบ: ${testRoom}`
 });
 
 const onlineTesters = Array.from(state.onlineTesters);
@@ -1556,8 +1771,8 @@ return;
         if (minecraftName !== "ไม่ทราบชื่อ") {
 
             dutyEmbed.setThumbnail(
-                `https://mc-heads.net/avatar/${minecraftName}/128`
-            );
+    `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
+);
 
         }
 
@@ -1707,9 +1922,8 @@ if (interaction.isButton()) {
             gameName:
                 request.minecraftName,
 
-            imageUrl:
-                oldData?.imageUrl || "",
-
+           imageUrl:
+    `https://minotar.net/helm/${encodeURIComponent(request.minecraftName)}/128.png`,    
             tier:
                 oldData?.tier || "-",
 
@@ -1969,8 +2183,8 @@ if (interaction.customId === "verify_modal") {
                 )
                 .setTitle("คำขอยืนยันตัวตน")
                 .setThumbnail(
-                    `https://mc-heads.net/avatar/${minecraftName}/128`
-                )
+    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(gameName)}/head`
+)
                 .addFields(
                     {
                         name: "Discord",
@@ -2872,16 +3086,13 @@ client.once("clientReady", async () => {
     console.log("บอทออนไลน์แล้ว!");
 
     // โหลดข้อมูลทั้งหมดจากไฟล์
-    loadVerifiedUsers();
-    loadCooldowns();
-    loadFinishedUsers();
-    loadChannelModes();
-    loadMainMessages();
+loadVerifiedUsers();
+loadCooldowns();
+loadFinishedUsers();
+loadChannelModes();
+loadMainMessages();
 
-    // ตรวจสอบ Cooldown ที่หมดอายุ
-    cleanupExpiredCooldowns();
-
-    await registerCommands();
+await registerCommands();
 
     const guild =
         await client.guilds.fetch(process.env.GUILD_ID);
@@ -2899,6 +3110,15 @@ client.once("clientReady", async () => {
         console.log("Discord ID:", discordId);
         console.log("Minecraft:", gameName);
         console.log("Tester:", tester);
+        const member = await guild.members
+    .fetch(discordId)
+    .catch(() => null);
+
+if (member) {
+    await member.setNickname(gameName).catch(err => {
+        console.error("เปลี่ยนชื่อ Discord ไม่สำเร็จ:", err);
+    });
+}
     const oldData = verifiedUsers.get(discordId);
 
     // ========================================
@@ -2992,9 +3212,10 @@ client.once("clientReady", async () => {
                 ? "ข้อมูล Tester ที่ยืนยันตัวตนแล้ว"
                 : "ข้อมูลผู้เล่นที่ยืนยันตัวตนแล้ว"
         )
-        .setThumbnail(
-            `https://mc-heads.net/avatar/${gameName}/128`
-        )
+       .setThumbnail(
+    imageUrl ||
+    `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
+)
         .addFields(
     {
         name: "Discord",

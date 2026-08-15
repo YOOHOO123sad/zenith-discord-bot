@@ -31,14 +31,6 @@
     "tester": true,
     "confirmed": true
   },
-  "1444313400355323914": {
-    "gameName": "Exrtze",
-    "imageUrl": "https://mc-heads.net/avatar/Exrtza/512",
-    "tier": "-",
-    "points": "0",
-    "tester": false,
-    "confirmed": true
-  },
   "1094574548382396556": {
     "gameName": "Torokung01",
     "imageUrl": "https://mc-heads.net/avatar/Torokung01/512",
@@ -71,7 +63,7 @@
   },
   "1273244831384207431": {
     "gameName": "ntang_xdd",
-    "imageUrl": "",
+    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/ntang_xdd/full",
     "tier": "-",
     "points": "0",
     "tester": true,
@@ -135,7 +127,7 @@
   },
   "1405907224164827166": {
     "gameName": "PUNGNX",
-    "imageUrl": "",
+    "imageUrl": "https://minotar.net/helm/PUNGNX/128.png",
     "tier": "-",
     "points": "0",
     "tester": false,
@@ -184,6 +176,38 @@
   "1480804998618025984": {
     "gameName": "roi_kazumaki",
     "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1148592600400535563": {
+    "gameName": "Fiwxpix_",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1367784639304830976": {
+    "gameName": "moke",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1455849187148038297": {
+    "gameName": "RaiGamesz",
+    "imageUrl": "",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1444313400355323914": {
+    "gameName": "Exrtza",
+    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/Exrtza/full",
     "tier": "-",
     "points": "0",
     "tester": false,
