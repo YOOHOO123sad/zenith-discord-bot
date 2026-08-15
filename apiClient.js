@@ -233,14 +233,23 @@ async function getApiToken() {
  * Get or create a player by Discord ID.
  * Ensures profile_url is set on the player record using
  * the atomic avatar-default endpoint when appropriate.
+ * @param {string} token - JWT admin token
+ * @param {Object} verifiedUser - Verified user data from verifiedUsers map (must include uuid)
+ * @param {DiscordUser} discordUser - Discord user object
  */
-async function getOrCreatePlayer(token, discordUser) {
+async function getOrCreatePlayer(token, verifiedUser, discordUser) {
   if (!discordUser) {
     return null;
   }
 
+  // Validate that we have a verified user with UUID
+  if (!verifiedUser || !verifiedUser.uuid) {
+    throw new Error('Verified user data with UUID is required for player creation');
+  }
+
   const discordId = discordUser.id;
-  const username = discordUser.username;
+  const username = verifiedUser.gameName || discordUser.username; // Use Minecraft name as username
+  const uuid = verifiedUser.uuid; // Use real Minecraft UUID from verified data
 
   // 1) lookup
   let lookupResp;
@@ -261,8 +270,13 @@ async function getOrCreatePlayer(token, discordUser) {
     );
   }
 
-  if (lookupResp.ok) {
+  if (lookupResp.status === 200) {
     const player = await lookupResp.json();
+
+    // Validate that the existing player has the correct UUID
+    if (player.uuid && player.uuid !== uuid) {
+      throw new Error(`UUID mismatch for Discord ID ${discordId}: expected ${uuid}, got ${player.uuid}`);
+    }
 
     if (!player.profile_url) {
       const avatarUrl = discordUser.displayAvatarURL({
@@ -287,6 +301,7 @@ async function getOrCreatePlayer(token, discordUser) {
       }
     }
 
+    // Update username if it doesn't match Minecraft name
     if (player.username !== username) {
       const u = await fetchWithFallback(
         'PATCH',
@@ -310,11 +325,32 @@ async function getOrCreatePlayer(token, discordUser) {
     }
 
     return player;
+  } else if (lookupResp.status === 404) {
+    // fall through to create player
+  } else {
+    let errorMessage;
+    switch (lookupResp.status) {
+      case 401:
+        errorMessage = 'Authentication error: Invalid or expired token';
+        break;
+      case 403:
+        errorMessage = 'Authorization error: Insufficient permissions';
+        break;
+      case 429:
+        const retryAfter = lookupResp.headers.get('Retry-After');
+        errorMessage = `Rate limit exceeded: Too many requests${retryAfter ? `, retry after ${retryAfter} seconds` : ''}`;
+        break;
+      default:
+        if (lookupResp.status >= 500 && lookupResp.status < 600) {
+          errorMessage = `Server error: ${lookupResp.status}`;
+        } else {
+          errorMessage = `Unexpected error: ${lookupResp.status}`;
+        }
+    }
+    throw new Error(errorMessage);
   }
 
   // 2) create
-  const uuid = randomUUID();
-
   const avatarUrl = discordUser.displayAvatarURL({
     extension: 'png',
     size: 256,
