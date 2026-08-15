@@ -112,6 +112,201 @@ let testCooldowns = new Map();
 let playerMessages = new Map();
 let finishedUsersData = new Map();
 let pendingVerifications = new Map();
+// ========================================
+// Tester Stats
+// ========================================
+let testerStats = new Map();
+
+function loadTesterStats() {
+    const file = path.join(__dirname, "testerStats.json");
+
+    if (!fs.existsSync(file)) {
+        testerStats = new Map();
+        return;
+    }
+
+    try {
+        const data = JSON.parse(
+            fs.readFileSync(file, "utf8")
+        );
+
+        testerStats = new Map(
+            Object.entries(data || {})
+        );
+
+        console.log(
+            `โหลด Tester Stats แล้ว: ${testerStats.size} คน`
+        );
+
+    } catch (err) {
+
+        console.error(
+            "❌ โหลด testerStats.json ไม่สำเร็จ:",
+            err
+        );
+
+        testerStats = new Map();
+    }
+}
+
+function saveTesterStats() {
+    const file =
+        path.join(__dirname, "testerStats.json");
+
+    fs.writeFileSync(
+        file,
+        JSON.stringify(
+            Object.fromEntries(testerStats),
+            null,
+            2
+        ),
+        "utf8"
+    );
+}
+
+function recordTesterStats(
+    testerId,
+    playerId,
+    tier,
+    mode
+) {
+
+    let stats =
+        testerStats.get(testerId);
+
+    if (!stats) {
+
+        stats = {
+            totalTests: 0,
+            playersTested: [],
+            tiersGiven: {},
+            modes: {}
+        };
+    }
+
+    // จำนวน Test
+    stats.totalTests++;
+
+    // ผู้เล่นที่เคยเทส แบบไม่ซ้ำ
+    if (!stats.playersTested.includes(playerId)) {
+
+        stats.playersTested.push(playerId);
+    }
+
+    // Tier ที่แจก
+    stats.tiersGiven[tier] =
+        (stats.tiersGiven[tier] || 0) + 1;
+
+    // Mode
+    const modeName =
+        mode || "ไม่ระบุ";
+
+    stats.modes[modeName] =
+        (stats.modes[modeName] || 0) + 1;
+
+    testerStats.set(
+        testerId,
+        stats
+    );
+
+    saveTesterStats();
+
+    console.log(
+        `Tester Stats: ${testerId} | Tests: ${stats.totalTests}`
+    );
+}
+// ========================================
+// อัปเดตข้อมูลผู้เล่นใน Discord ทันที
+// ========================================
+async function updatePlayerInfoMessage(guild, discordId) {
+
+    try {
+
+        const player = verifiedUsers.get(discordId);
+
+        if (!player) {
+            console.log(`ไม่พบข้อมูลผู้เล่น ${discordId}`);
+            return;
+        }
+
+        const messageId = playerMessages.get(discordId);
+
+        if (!messageId) {
+            console.log(`ไม่พบ Message ID ของผู้เล่น ${discordId}`);
+            return;
+        }
+
+        const channelId =
+            player.tester === true
+                ? TESTER_INFO_CHANNEL_ID
+                : PLAYER_INFO_CHANNEL_ID;
+
+        const channel =
+            await guild.channels.fetch(channelId).catch(() => null);
+
+        if (!channel) {
+            console.log(`ไม่พบห้องข้อมูลผู้เล่น ${channelId}`);
+            return;
+        }
+
+        const message =
+            await channel.messages.fetch(messageId).catch(() => null);
+
+        if (!message) {
+            console.log(`ไม่พบ Message ${messageId}`);
+            return;
+        }
+
+        if (!message.embeds || !message.embeds.length) {
+            console.log("Message ไม่มี Embed");
+            return;
+        }
+
+        const embed =
+            EmbedBuilder.from(message.embeds[0]);
+
+        const oldFields =
+            message.embeds[0].fields || [];
+
+        const newFields =
+            oldFields.map(field => {
+
+                if (field.name === "Tier") {
+                    return {
+                        ...field,
+                        value: player.tier || "-"
+                    };
+                }
+
+                if (field.name === "Points") {
+                    return {
+                        ...field,
+                        value: String(player.points ?? 0)
+                    };
+                }
+
+                return field;
+            });
+
+        embed.setFields(newFields);
+
+        await message.edit({
+            embeds: [embed]
+        });
+
+        console.log(
+            `อัปเดต Tier/Points ใน Discord แล้ว: ${discordId}`
+        );
+
+    } catch (err) {
+
+        console.error(
+            "อัปเดตข้อมูลผู้เล่นใน Discord ไม่สำเร็จ:",
+            err
+        );
+
+    }
+}
 const VERIFY_REQUEST_CHANNEL_ID = "1537032656120979538";
 const maxQueue = 20;
 const testerRoleName = "Tester";
@@ -180,6 +375,150 @@ function getState(channelId) {
     }
 
     return state;
+}
+// ========================================
+// Queue Call Timeout — 5 นาที
+// ========================================
+const QUEUE_CALL_TIMEOUT_MS = 5 * 60 * 1000;
+const queueCallTimers = new Map();
+
+function clearQueueCallTimer(queueChannelId) {
+    const timer = queueCallTimers.get(queueChannelId);
+
+    if (timer) {
+        clearTimeout(timer);
+        queueCallTimers.delete(queueChannelId);
+    }
+}
+
+function startQueueCallTimer(queueChannelId, userId) {
+    clearQueueCallTimer(queueChannelId);
+
+    const timer = setTimeout(async () => {
+        queueCallTimers.delete(queueChannelId);
+
+        try {
+            const state = channelStates.get(queueChannelId);
+
+            if (!state || !state.currentTesting) {
+                return;
+            }
+
+            // ถ้าไม่ใช่ผู้เล่นคนที่ถูกเรียกแล้ว ไม่ต้องทำอะไร
+            if (state.currentTesting.userId !== userId) {
+                return;
+            }
+
+            // ถ้าเริ่มเทสไปแล้ว แสดงว่าผู้เล่นเข้าห้องแล้ว
+            const roomId = state.currentTesting.channelId;
+
+            if (roomId && activeTests.has(roomId)) {
+                return;
+            }
+
+            const guild = client.guilds.cache.find(
+                g => g.channels.cache.has(queueChannelId)
+            );
+
+            if (!guild) {
+                return;
+            }
+
+            const queueChannel =
+                guild.channels.cache.get(queueChannelId);
+
+            const skippedUserId =
+                state.currentTesting.userId;
+
+            // ========================================
+            // ล้าง Current Testing
+            // ========================================
+            state.currentTesting = null;
+
+            // ========================================
+            // ลบห้อง Test ถ้ายังมีอยู่
+            // ========================================
+            if (roomId) {
+
+                const testRoom =
+                    guild.channels.cache.get(roomId);
+
+                if (testRoom) {
+                    await testRoom.delete(
+                        "ผู้เล่นไม่เข้าห้อง Test ภายใน 5 นาที"
+                    ).catch(() => {});
+                }
+
+                activeTests.delete(roomId);
+            }
+
+            // ========================================
+            // แจ้งผู้เล่นว่าถูกข้าม
+            // ========================================
+            const member =
+                await guild.members
+                    .fetch(skippedUserId)
+                    .catch(() => null);
+
+            if (member) {
+
+                await member.send(
+                    "**หมดเวลาการเรียกคิว**\n\n" +
+                    "คุณไม่ได้เข้าห้อง Test ภายใน **5 นาที**\n" +
+                    "ระบบจึงข้ามคิวของคุณอัตโนมัติ\n\n" +
+                    "หากต้องการทดสอบ สามารถเข้าคิวใหม่ได้"
+                ).catch(() => {});
+            }
+
+            // ========================================
+            // แจ้งในห้อง Queue
+            // ========================================
+            if (queueChannel) {
+
+                await queueChannel.send({
+                    content:
+                        `<@${skippedUserId}> ไม่เข้าห้อง Test ภายใน **5 นาที** จึงถูกข้ามคิวอัตโนมัติ`
+                }).catch(() => {});
+
+                // อัปเดต Queue Embed
+                if (state.mainMessageId) {
+
+                    const mainMessage =
+                        await queueChannel.messages
+                            .fetch(state.mainMessageId)
+                            .catch(() => null);
+
+                    if (mainMessage) {
+
+                        await mainMessage.edit({
+                            embeds: [
+                                buildEmbed(queueChannelId)
+                            ],
+                            components:
+                                buildButtons(queueChannelId)
+                        }).catch(() => {});
+                    }
+                }
+            }
+
+            console.log(
+                `ข้ามคิว ${skippedUserId} เนื่องจากไม่เข้าห้องภายใน 5 นาที`
+            );
+
+        } catch (err) {
+
+            console.error(
+                "Queue Timeout Error:",
+                err
+            );
+        }
+
+    }, QUEUE_CALL_TIMEOUT_MS);
+
+    queueCallTimers.set(
+        queueChannelId,
+        timer
+    );
 }
 function getStateByRoom(roomChannelId) {
 
@@ -700,15 +1039,38 @@ if (
             mode: queueItem.mode,
             channelId: testRoom.id
         };
+        // ========================================
+// แจ้งเตือนผู้เล่น + เริ่มเวลา 5 นาที
+// ========================================
 
-        activeTests.set(testRoom.id, {
-            userId: queueItem.userId,
-            testerId: interaction.user.id,
-            detail: queueItem.detail,
-            mode: queueItem.mode,
-            channelId: testRoom.id,
-            queueChannelId: interaction.channelId
-        });
+await interaction.channel.send({
+    content:
+        `<@${queueItem.userId}> **ถึงคิวของคุณแล้ว!**\n` +
+        `กรุณาเข้า Test Room ภายใน **5 นาที**\n` +
+        `หากไม่เข้าภายในเวลาที่กำหนด ระบบจะข้ามคิวอัตโนมัติ`
+}).catch(() => {});
+
+// ส่ง DM ด้วย
+const calledMember =
+    await interaction.guild.members
+        .fetch(queueItem.userId)
+        .catch(() => null);
+
+if (calledMember) {
+
+    await calledMember.send(
+        "**ถึงคิวของคุณแล้ว!**\n\n" +
+        "กรุณาเข้า **Test Room** ภายใน **5 นาที**\n" +
+        "หากไม่เข้าภายในเวลาที่กำหนด " +
+        "ระบบจะข้ามคิวอัตโนมัติ"
+    ).catch(() => {});
+}
+
+// เริ่ม Timer 5 นาที
+startQueueCallTimer(
+    interaction.channelId,
+    queueItem.userId
+);
 
         console.log(
             "===== ACTIVE TEST CREATED ====="
@@ -1516,6 +1878,9 @@ try {
         channelId: testRoom.id,
         queueChannelId: interaction.channelId
     });
+    clearQueueCallTimer(
+    interaction.channelId
+);
 
 } catch (err) {
 
@@ -1853,13 +2218,13 @@ return;
                     text: "Zenith Community • Tester Duty"
                 });
 
-        if (minecraftName !== "ไม่ทราบชื่อ") {
+       if (minecraftName !== "ไม่ทราบชื่อ") {
 
-            dutyEmbed.setThumbnail(
-    `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
-);
+    dutyEmbed.setThumbnail(
+        `https://minotar.net/helm/${encodeURIComponent(minecraftName)}/128.png`
+    );
 
-        }
+}
 
         // =========================
         // ส่งแจ้งเตือน
@@ -2606,9 +2971,16 @@ if (interaction.customId === "tier_score_modal") {
             player.tester ?? false;
 
         verifiedUsers.set(
-            picked.testedUserId,
-            player
-        );
+    picked.testedUserId,
+    player
+);
+
+saveVerifiedUsers();
+
+await updatePlayerInfoMessage(
+    interaction.guild,
+    picked.testedUserId
+);
 
         // ========================================
         // บันทึกการแข่งขันไปยัง API (แหล่งที่มาของความจริง)
@@ -2847,6 +3219,16 @@ if (interaction.customId === "tier_score_modal") {
         await resultsChannel.send({
             embeds: [embed]
         });
+        // ========================================
+// บันทึก Tester Stats
+// ========================================
+
+recordTesterStats(
+    picked.testerUserId,
+    picked.testedUserId,
+    tier,
+    picked.mode
+);
 
         // ========================================
         // หา State ของห้อง Test
@@ -2935,11 +3317,15 @@ if (interaction.customId === "tier_score_modal") {
             // -----------------------------
 
             activeTests.delete(
-                interaction.channelId
-            );
+    interaction.channelId
+);
 
-            found.state.currentTesting =
-                null;
+// ยกเลิก Timer 5 นาที
+clearQueueCallTimer(
+    found.queueChannelId
+);
+
+found.state.currentTesting = null;
 
             // -----------------------------
             // อัปเดต Queue
@@ -3268,14 +3654,16 @@ client.once("clientReady", async () => {
 
     console.log("บอทออนไลน์แล้ว!");
 
-    // โหลดข้อมูลทั้งหมดจากไฟล์
-loadVerifiedUsers();
-loadCooldowns();
-loadFinishedUsers();
-loadChannelModes();
-loadMainMessages();
+    loadVerifiedUsers();
+    loadCooldowns();
+    loadFinishedUsers();
+    loadChannelModes();
+    loadMainMessages();
+    loadTesterStats();
 
-await registerCommands();
+    await registerCommands();
+
+    
 
     const guild =
         await client.guilds.fetch(process.env.GUILD_ID);

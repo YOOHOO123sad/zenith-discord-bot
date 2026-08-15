@@ -1,0 +1,26 @@
+{
+  "893118412111372318": {
+    "totalTests": 1,
+    "playersTested": [
+      "1259374460503326832"
+    ],
+    "tiersGiven": {
+      "LT4": 1
+    },
+    "modes": {
+      "CPVP": 1
+    }
+  },
+  "1273244831384207431": {
+    "totalTests": 1,
+    "playersTested": [
+      "1408359433771290715"
+    ],
+    "tiersGiven": {
+      "LT4": 1
+    },
+    "modes": {
+      "UHC": 1
+    }
+  }
+}

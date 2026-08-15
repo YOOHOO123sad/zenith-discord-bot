@@ -133,14 +133,6 @@
     "tester": false,
     "confirmed": true
   },
-  "1408359433771290715": {
-    "gameName": "Test",
-    "imageUrl": "",
-    "tier": "-",
-    "points": "0",
-    "tester": false,
-    "confirmed": true
-  },
   "1226024988763488318": {
     "gameName": "SAWADEEPUN",
     "imageUrl": "",
@@ -208,6 +200,14 @@
   "1444313400355323914": {
     "gameName": "Exrtza",
     "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/Exrtza/full",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1408359433771290715": {
+    "gameName": "TEST",
+    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/TEST/full",
     "tier": "-",
     "points": "0",
     "tester": false,
