@@ -270,7 +270,7 @@ async function getOrCreatePlayer(token, verifiedUser, discordUser) {
     );
   }
 
-  if (lookupResp.ok) {
+  if (lookupResp.status === 200) {
     const player = await lookupResp.json();
 
     // Validate that the existing player has the correct UUID
@@ -325,6 +325,29 @@ async function getOrCreatePlayer(token, verifiedUser, discordUser) {
     }
 
     return player;
+  } else if (lookupResp.status === 404) {
+    // fall through to create player
+  } else {
+    let errorMessage;
+    switch (lookupResp.status) {
+      case 401:
+        errorMessage = 'Authentication error: Invalid or expired token';
+        break;
+      case 403:
+        errorMessage = 'Authorization error: Insufficient permissions';
+        break;
+      case 429:
+        const retryAfter = lookupResp.headers.get('Retry-After');
+        errorMessage = `Rate limit exceeded: Too many requests${retryAfter ? `, retry after ${retryAfter} seconds` : ''}`;
+        break;
+      default:
+        if (lookupResp.status >= 500 && lookupResp.status < 600) {
+          errorMessage = `Server error: ${lookupResp.status}`;
+        } else {
+          errorMessage = `Unexpected error: ${lookupResp.status}`;
+        }
+    }
+    throw new Error(errorMessage);
   }
 
   // 2) create
