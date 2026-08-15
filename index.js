@@ -235,7 +235,6 @@ async function updatePlayerInfoMessage(guild, discordId) {
             console.log(`ไม่พบ Message ID ของผู้เล่น ${discordId}`);
             return;
         }
-
         const channelId =
             player.tester === true
                 ? TESTER_INFO_CHANNEL_ID
@@ -307,6 +306,7 @@ async function updatePlayerInfoMessage(guild, discordId) {
 
     }
 }
+const GUILD_ID = "1494920203618746449";
 const VERIFY_REQUEST_CHANNEL_ID = "1537032656120979538";
 const maxQueue = 20;
 const testerRoleName = "Tester";
@@ -336,6 +336,14 @@ const tierPoints = {
     LT5: 1
 };
 const mainMessages = new Map();
+const rankRoles = [
+    { name: "Combat Grandmaster", minPoints: 400 },
+    { name: "Combat Master", minPoints: 250 },
+    { name: "Combat Ace", minPoints: 150 },
+    { name: "Combat Specialist", minPoints: 60 },
+    { name: "Combat Cadet", minPoints: 20 },
+    { name: "Combat Rookie", minPoints: 0 }
+];
 function getState(channelId) {
 
     if (!channelStates.has(channelId)) {
@@ -757,6 +765,226 @@ function loadVerifiedUsers() {
     verifiedUsers = new Map(Object.entries(data));
 
     console.log("Loaded IDs:", [...verifiedUsers.keys()]);
+}
+async function updateCombatRank(discordId) {
+
+    try {
+
+        // ========================================
+        // ดึงข้อมูลผู้เล่น
+        // ========================================
+
+        const player =
+            verifiedUsers.get(discordId);
+
+        if (!player) {
+
+            console.log(
+                `ไม่พบข้อมูลผู้เล่น ${discordId}`
+            );
+
+            return;
+        }
+
+
+        // ========================================
+        // ดึง Guild
+        // ========================================
+
+        const guild =
+            await client.guilds
+                .fetch(GUILD_ID)
+                .catch(() => null);
+
+        if (!guild) {
+
+            console.log(
+                "ไม่พบบอทอยู่ในเซิร์ฟเวอร์"
+            );
+
+            return;
+        }
+
+
+        // ========================================
+        // ดึงสมาชิก Discord
+        // ========================================
+
+        const member =
+            await guild.members
+                .fetch(discordId)
+                .catch(() => null);
+
+        if (!member) {
+
+            console.log(
+                `ไม่พบสมาชิก Discord: ${discordId}`
+            );
+
+            return;
+        }
+
+
+        // ========================================
+        // คำนวณ Points
+        // ========================================
+
+        const points =
+            Math.max(
+                0,
+                Number(player.points) || 0
+            );
+
+
+        // ========================================
+        // หา Rank
+        // สำคัญ: เรียงจากคะแนนสูง -> ต่ำ
+        // ========================================
+
+        const rank =
+            [...rankRoles]
+                .sort(
+                    (a, b) =>
+                        b.minPoints - a.minPoints
+                )
+                .find(
+                    role =>
+                        points >= role.minPoints
+                );
+
+
+        if (!rank) {
+
+            console.log(
+                `ไม่พบ Rank สำหรับ ${points} points`
+            );
+
+            return;
+        }
+
+
+        // ========================================
+        // Debug
+        // ========================================
+
+        console.log(
+            "===== COMBAT RANK ====="
+        );
+
+        console.log(
+            "Player:",
+            player.gameName || discordId
+        );
+
+        console.log(
+            "Points:",
+            points
+        );
+
+        console.log(
+            "Rank:",
+            rank.name
+        );
+
+        console.log(
+            "======================="
+        );
+
+
+        // ========================================
+        // ลบ Rank เก่าทั้งหมด
+        // ========================================
+
+        for (const roleInfo of rankRoles) {
+
+            const role =
+                guild.roles.cache.find(
+                    r =>
+                        r.name ===
+                        roleInfo.name
+                );
+
+            if (
+                role &&
+                member.roles.cache.has(role.id)
+            ) {
+
+                await member.roles
+                    .remove(role)
+                    .catch(error => {
+
+                        console.error(
+                            `ลบยศ ${role.name} ไม่สำเร็จ:`,
+                            error.message
+                        );
+
+                    });
+
+            }
+
+        }
+
+
+        // ========================================
+        // หา Role ใหม่
+        // ========================================
+
+        const newRole =
+            guild.roles.cache.find(
+                r =>
+                    r.name === rank.name
+            );
+
+        if (!newRole) {
+
+            console.log(
+                `ไม่พบ Role: ${rank.name}`
+            );
+
+            return;
+        }
+
+
+        // ========================================
+        // เพิ่ม Role ใหม่
+        // ========================================
+
+        if (
+            !member.roles.cache.has(
+                newRole.id
+            )
+        ) {
+
+            await member.roles
+                .add(newRole)
+                .catch(error => {
+
+                    console.error(
+                        `เพิ่มยศ ${rank.name} ไม่สำเร็จ:`,
+                        error.message
+                    );
+
+                });
+
+        }
+
+
+        // ========================================
+        // สำเร็จ
+        // ========================================
+
+        console.log(
+            `🏆 ${player.gameName || discordId} มี ${points} points → ได้รับยศ ${rank.name}`
+        );
+
+    } catch (error) {
+
+        console.error(
+            "updateCombatRank Error:",
+            error
+        );
+
+    }
 }
 console.log("Current directory =", process.cwd());
 console.log("verified.json path =", path.resolve("verified.json"));
@@ -1261,23 +1489,23 @@ if (interaction.isChatInputCommand()) {
 
     const playerData = {
     gameName: minecraftName,
-    imageUrl:
-    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(minecraftName)}/full`,
-    tier:
-        oldData?.tier || "-",
-    points:
-        oldData?.points || "0",
-    tester:
-        isTargetTester === true,
+    imageUrl: `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(minecraftName)}/full`,
+    uuid: uuid,
+    tier: oldData?.tier || "-",
+    points: oldData?.points || "0",
+    tester: isTargetTester === true,
     confirmed: true
 };
 
     verifiedUsers.set(
-        targetUser.id,
-        playerData
-    );
+    targetUser.id,
+    playerData
+);
 
-    saveVerifiedUsers();
+saveVerifiedUsers();
+
+// ⭐ ให้ยศตาม Points ปัจจุบัน
+await updateCombatRank(targetUser.id);
 
     // =========================
     // ลบคำขอเก่า ถ้ามี
@@ -1446,8 +1674,12 @@ if (interaction.commandName === "unconfirm") {
     // ลบข้อมูลยืนยัน
     // =====================================================
 
-    verifiedUsers.delete(targetUser.id);
-    saveVerifiedUsers();
+   // ลบ Combat Rank ก่อน
+await removeCombatRanks(targetUser.id);
+
+// ลบข้อมูลยืนยัน
+verifiedUsers.delete(targetUser.id);
+saveVerifiedUsers();
 
     // ลบคำขอยืนยันที่ค้างอยู่
     pendingVerifications.delete(targetUser.id);
@@ -2237,11 +2469,6 @@ const memberRole =
 // =========================
 // เพิ่ม / ลบ Role Member
 // =========================
-
-const memberRoleToAdd = interaction.guild.roles.cache.find(
-    role => role.name === "Member"
-);
-
 if (memberRole) {
 
     if (goingOnDuty) {
@@ -2658,8 +2885,8 @@ if (interaction.customId === "verify_modal") {
                         : 0x3498db
                 )
                 .setTitle("คำขอยืนยันตัวตน")
-                .setThumbnail(
-    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(gameName)}/head`
+.setThumbnail(
+    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(minecraftName)}/head`
 )
                 .addFields(
                     {
@@ -2859,6 +3086,19 @@ if (interaction.customId === "tier_score_modal") {
 
             return;
         }
+        if (picked.winnerSide === "applicant" && playerScore <= testerScore) {
+    await interaction.editReply({
+        content: "ถ้าผู้เล่นชนะ Score ของผู้เล่นต้องมากกว่า Tester"
+    });
+    return;
+}
+
+if (picked.winnerSide === "tester" && testerScore <= playerScore) {
+    await interaction.editReply({
+        content: "ถ้า Tester ชนะ Score ของ Tester ต้องมากกว่า Player"
+    });
+    return;
+}
 
         // ========================================
         // คะแนน Tier
@@ -2915,21 +3155,18 @@ if (interaction.customId === "tier_score_modal") {
             // ผู้เล่นชนะ
             pointsChange = basePoint;
 
-            player.points = String(
-                currentPoints + basePoint
-            );
+           player.points = String(
+    currentPoints + basePoint
+);
 
-        } else {
+} else {
 
-            // ผู้เล่นแพ้
-            // คะแนนไม่ลด
+    pointsChange = -basePoint;
 
-            pointsChange = 0;
-
-            player.points = String(
-                currentPoints
-            );
-        }
+    player.points = String(
+        Math.max(0, currentPoints - basePoint)
+    );
+}
 
         // ========================================
         // Tier
@@ -2970,18 +3207,22 @@ if (interaction.customId === "tier_score_modal") {
         player.tester =
             player.tester ?? false;
 
-        verifiedUsers.set(
+verifiedUsers.set(
     picked.testedUserId,
     player
 );
 
 saveVerifiedUsers();
 
+// อัปเดตยศอัตโนมัติตาม Points
+await updateCombatRank(
+    picked.testedUserId
+);
+
 await updatePlayerInfoMessage(
     interaction.guild,
     picked.testedUserId
 );
-
         // ========================================
         // บันทึกการแข่งขันไปยัง API (แหล่งที่มาของความจริง)
         // ========================================
@@ -3190,10 +3431,10 @@ await updatePlayerInfoMessage(
 
                     {
                         name: "Points Change",
-                        value:
-                            pointsChange > 0
-                                ? `+${pointsChange}`
-                                : "0",
+                       value:
+    pointsChange > 0
+        ? `+${pointsChange}`
+        : String(pointsChange),
                         inline: true
                     },
 
@@ -3670,7 +3911,70 @@ client.once("clientReady", async () => {
 
     console.log("CALL onVerified");
 
-    global.onVerified = async (
+// ========================================
+// ลบ Combat Rank เดิมทั้งหมด
+// ========================================
+
+async function removeCombatRanks(discordId) {
+
+    try {
+
+        const guild =
+            await client.guilds
+                .fetch(GUILD_ID)
+                .catch(() => null);
+
+        if (!guild) return;
+
+        const member =
+            await guild.members
+                .fetch(discordId)
+                .catch(() => null);
+
+        if (!member) return;
+
+        for (const roleInfo of rankRoles) {
+
+            const role =
+                guild.roles.cache.find(
+                    r => r.name === roleInfo.name
+                );
+
+            if (
+                role &&
+                member.roles.cache.has(role.id)
+            ) {
+
+                await member.roles
+                    .remove(role)
+                    .catch(err => {
+
+                        console.error(
+                            `ลบยศ ${role.name} ไม่สำเร็จ:`,
+                            err.message
+                        );
+
+                    });
+
+            }
+
+        }
+
+        console.log(
+            `ลบ Combat Rank ของ ${discordId} แล้ว`
+        );
+
+    } catch (error) {
+
+        console.error(
+            "removeCombatRanks Error:",
+            error
+        );
+
+    }
+}
+
+global.onVerified = async (
         discordId,
         gameName,
         imageUrl,
@@ -3746,8 +4050,32 @@ if (member) {
         confirmed: true
     };
 
-    verifiedUsers.set(discordId, playerData);
-    saveVerifiedUsers();
+// ========================================
+// บันทึกข้อมูลผู้เล่นก่อน
+// ========================================
+
+// ========================================
+// บันทึกข้อมูลผู้เล่นก่อน
+// ========================================
+
+verifiedUsers.set(discordId, playerData);
+saveVerifiedUsers();
+
+// ========================================
+// ลบยศ Combat Rank เดิมทั้งหมด
+// ========================================
+
+await removeCombatRanks(discordId);
+
+// ========================================
+// ใส่ยศ Combat Rank ใหม่ตาม Tier / Points
+// ========================================
+
+await updateCombatRank(discordId);
+
+// ========================================
+// หา Channel
+// ========================================
 
     // ========================================
     // หา Channel
@@ -3786,7 +4114,6 @@ if (member) {
                 : "ข้อมูลผู้เล่นที่ยืนยันตัวตนแล้ว"
         )
        .setThumbnail(
-    imageUrl ||
     `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
 )
         .addFields(
@@ -3811,9 +4138,12 @@ if (member) {
         inline: true
     }
 )
-        .setImage(
-            `https://starlightskins.lunareclipse.studio/render/default/${gameName}/full`
-        )
+        .setThumbnail(
+    `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
+)
+.setImage(
+    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(gameName)}/full`
+)
         .setTimestamp()
         .setFooter({
             text: "Zenith Community"

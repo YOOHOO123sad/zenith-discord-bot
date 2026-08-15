@@ -12,15 +12,24 @@
     }
   },
   "1273244831384207431": {
-    "totalTests": 1,
+    "totalTests": 12,
     "playersTested": [
       "1408359433771290715"
     ],
     "tiersGiven": {
-      "LT4": 1
+      "LT4": 1,
+      "HT1": 11
     },
     "modes": {
-      "UHC": 1
+      "UHC": 1,
+      "SMP": 2,
+      "NETHPOT": 2,
+      "AXEPVP": 2,
+      "MACEPVP": 1,
+      "MACEROCKET": 1,
+      "CPVP": 1,
+      "DIAPOT": 1,
+      "SPVP": 1
     }
   }
 }

@@ -61,14 +61,6 @@
     "tester": false,
     "confirmed": true
   },
-  "1273244831384207431": {
-    "gameName": "ntang_xdd",
-    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/ntang_xdd/full",
-    "tier": "-",
-    "points": "0",
-    "tester": true,
-    "confirmed": true
-  },
   "1047852320089722960": {
     "gameName": "Navakub",
     "imageUrl": "",
@@ -197,17 +189,28 @@
     "tester": false,
     "confirmed": true
   },
-  "1444313400355323914": {
-    "gameName": "Exrtza",
-    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/Exrtza/full",
-    "tier": "-",
-    "points": "0",
-    "tester": false,
-    "confirmed": true
-  },
   "1408359433771290715": {
     "gameName": "TEST",
     "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/TEST/full",
+    "uuid": "d8d5a923-7b20-43d8-883b-1150148d6955",
+    "tier": "HT1",
+    "points": "90",
+    "tester": false,
+    "confirmed": true
+  },
+  "1273244831384207431": {
+    "gameName": "ntang_xdd",
+    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/ntang_xdd/full",
+    "uuid": "8849c545-63ad-4cdd-8f9f-f447f7872a8d",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "1444313400355323914": {
+    "gameName": "Exrtza",
+    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/Exrtza/full",
+    "uuid": "80908e0b-5ef3-4c3d-b3eb-ab4ac6f70f18",
     "tier": "-",
     "points": "0",
     "tester": false,
