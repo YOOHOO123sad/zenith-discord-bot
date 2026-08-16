@@ -1,6 +1,7 @@
 # Node.js
 node_modules/
 .env
+.env.local
 npm-debug.log*
 
 # Maven / Java
@@ -10,5 +11,14 @@ target/
 # VS Code
 .vscode/
 
+# Claude
+.claude/
+
+# Data, ngl we shouldn't add this to githuh
+# data/*.json 
+
 # Logs
 *.log
+
+# tmp
+tmp/
