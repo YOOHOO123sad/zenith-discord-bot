@@ -189,15 +189,6 @@
     "tester": false,
     "confirmed": true
   },
-  "1408359433771290715": {
-    "gameName": "TEST",
-    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/TEST/full",
-    "uuid": "d8d5a923-7b20-43d8-883b-1150148d6955",
-    "tier": "HT1",
-    "points": "90",
-    "tester": false,
-    "confirmed": true
-  },
   "1273244831384207431": {
     "gameName": "ntang_xdd",
     "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/ntang_xdd/full",
@@ -214,6 +205,24 @@
     "tier": "-",
     "points": "0",
     "tester": false,
+    "confirmed": true
+  },
+  "1361518665924874388": {
+    "gameName": "MusVE",
+    "imageUrl": "https://minotar.net/helm/MusVE/128.png",
+    "uuid": "a1983b7e-a82c-402e-866c-1d3e22ee30b2",
+    "tier": "-",
+    "points": "0",
+    "tester": false,
+    "confirmed": true
+  },
+  "1408359433771290715": {
+    "gameName": "TEST",
+    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/TEST/full",
+    "uuid": "d8d5a923-7b20-43d8-883b-1150148d6955",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
     "confirmed": true
   }
 }
