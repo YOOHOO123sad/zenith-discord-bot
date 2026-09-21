@@ -71,7 +71,25 @@ function pathV1(p) {
 function pathLegacy(p) {
   return `${apiBase()}${LEGACY}${p}`;
 }
+function getMinecraftAvatarUrl(verifiedUser) {
+  if (!verifiedUser) return null;
 
+  if (verifiedUser.imageUrl) {
+    return verifiedUser.imageUrl;
+  }
+
+  if (verifiedUser.uuid) {
+    return `https://minotar.net/helm/${verifiedUser.uuid}/128.png`;
+  }
+
+  if (verifiedUser.gameName) {
+    return `https://minotar.net/helm/${encodeURIComponent(
+      verifiedUser.gameName
+    )}/128.png`;
+  }
+
+  return null;
+}
 /**
  * Fetch with one automatic fallback to the legacy un-versioned prefix when
  * the versioned call returns 404. Network errors are caught and propagated.
@@ -278,28 +296,29 @@ async function getOrCreatePlayer(token, verifiedUser, discordUser) {
       throw new Error(`UUID mismatch for Discord ID ${discordId}: expected ${uuid}, got ${player.uuid}`);
     }
 
-    if (!player.profile_url) {
-      const avatarUrl = discordUser.displayAvatarURL({
-        extension: 'png',
-        size: 256,
-        forceStatic: true
-      });
+const minecraftAvatarUrl =
+  getMinecraftAvatarUrl(verifiedUser);
 
-      try {
-        const updated = await setAvatarIfNull(
-          token,
-          player.id,
-          avatarUrl
-        );
+if (minecraftAvatarUrl) {
+  try {
+    const updated = await updatePlayerAvatar(
+      token,
+      player.id,
+      minecraftAvatarUrl
+    );
 
-        player.profile_url = updated.profile_url;
-      } catch (e) {
-        console.warn(
-          `[getOrCreatePlayer] avatar-default failed for ${discordId}:`,
-          e.message
-        );
-      }
-    }
+    player.profile_url = updated.profile_url;
+
+    console.log(
+      `[getOrCreatePlayer] Minecraft avatar synced for ${username}: ${minecraftAvatarUrl}`
+    );
+  } catch (e) {
+    console.warn(
+      `[getOrCreatePlayer] Minecraft avatar update failed for ${discordId}:`,
+      e.message
+    );
+  }
+}
 
     // Update username if it doesn't match Minecraft name
     if (player.username !== username) {
@@ -351,28 +370,26 @@ async function getOrCreatePlayer(token, verifiedUser, discordUser) {
   }
 
   // 2) create
-  const avatarUrl = discordUser.displayAvatarURL({
-    extension: 'png',
-    size: 256,
-    forceStatic: true
-  });
+  // 2) create
+const minecraftAvatarUrl =
+  getMinecraftAvatarUrl(verifiedUser);
 
-  const create = await fetchWithFallback(
-    'POST',
-    '/admin/players',
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        discord_id: discordId,
-        username,
-        uuid,
-        profile_url: avatarUrl
-      })
-    }
-  );
+const create = await fetchWithFallback(
+  'POST',
+  '/admin/players',
+  {
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      discord_id: discordId,
+      username,
+      uuid,
+      profile_url: minecraftAvatarUrl
+    })
+  }
+);
 
   if (!create.ok) {
     const txt = await create.text();
@@ -429,6 +446,37 @@ async function setAvatarIfNull(token, playerId, avatarUrl) {
   return resp.json();
 }
 
+   async function updatePlayerAvatar(
+  token,
+  playerId,
+  avatarUrl
+) {
+
+  const resp = await fetchWithFallback(
+    'PATCH',
+    `/admin/players/${playerId}`,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        profile_url: avatarUrl
+      })
+    }
+  );
+
+  if (!resp.ok) {
+
+    const txt = await resp.text();
+
+    throw new Error(
+      `Failed to update player avatar: ${resp.status} ${txt}`
+    );
+  }
+
+  return resp.json();
+}
 /**
  * Create a match via POST /api/v1/matches/
  * @param {string} token - JWT admin token
@@ -462,6 +510,7 @@ module.exports = {
   getApiToken,
   getOrCreatePlayer,
   setAvatarIfNull,
+  updatePlayerAvatar,
   createMatch,
   setCurrentDiscordInteractionId,
   interactionHeaders,

@@ -21,7 +21,7 @@ Routes
 } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
-const { generateCode } = require("./verifyApi");
+const apiClient = require("./src/services/apiClient");
 
 function normalizeMinecraftUUID(uuid) {
   if (!uuid) return null;
@@ -92,8 +92,14 @@ function fetchMinecraftUUID(username) {
     req.end();
   });
 }
+function getMinecraftRenderUrl(identifier) {
+  if (!identifier) return "";
 
-const apiClient = require("./apiClient");
+  return `https://skinrender.dev/render/${encodeURIComponent(
+    identifier
+  )}/body?yaw=35&pitch=12&fov=0&bg=transparent&fit=true&zoom=1.15`;
+}
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -116,6 +122,8 @@ let pendingVerifications = new Map();
 // Tester Stats
 // ========================================
 let testerStats = new Map();
+let rankedQueues = new Map();
+let rankedMatches = new Map();
 
 function loadTesterStats() {
     const file = path.join(__dirname, "testerStats.json");
@@ -323,6 +331,43 @@ const tierOptions = ["HT1", "LT1", "HT2", "LT2", "HT3", "LT3", "HT4", "LT4", "HT
 const modeOptions = ["CPVP", "SPVP", "MACEPVP", "AXEPVP", "UHC", "MACEROCKET", "SMP", "DIAPOT", "NETHPOT"];
 const cooldownDays = 3;
 const cooldownMs = cooldownDays * 24 * 60 * 60 * 1000;
+const RANKED_RESULT_CHANNEL_ID = "1549722352198230088";
+
+const rankedTierOrder = [
+    "LT3",
+    "HT3",
+    "LT2",
+    "HT2",
+    "LT1",
+    "HT1"
+];
+
+const rankedFirstTo = {
+    LT3: 5,
+    HT3: 6,
+    LT2: 7,
+    HT2: 8,
+    LT1: 10,
+    HT1: 10
+};
+
+const rankedTierUp = {
+    LT3: "HT3",
+    HT3: "LT2",
+    LT2: "HT2",
+    HT2: "LT1",
+    LT1: "HT1",
+    HT1: "HT1"
+};
+
+const rankedTierDown = {
+    LT3: "LT3",
+    HT3: "LT3",
+    LT2: "HT3",
+    HT2: "LT2",
+    LT1: "HT2",
+    HT1: "LT1"
+};
 const tierPoints = {
     HT1: 10,
     LT1: 9,
@@ -1323,8 +1368,17 @@ const channel = guild.channels.cache.get(RESULTS_CHANNEL_ID);
 }
 
 async function createTestRoom(guild, testerId, queueItem, parentChannel) {
+
+    const mode = queueItem.mode;
+
+    if (!mode) {
+        throw new Error(
+            `ไม่พบ Mode สำหรับ Queue Item: ${queueItem.userId}`
+        );
+    }
+
     const channelName =
-    `${queueItem.userId}-${queueItem.mode.toLowerCase()}-test`;
+        `${mode.toLowerCase()}-${queueItem.userId}-test`;
 
     const channel = await guild.channels.create({
         name: channelName,
@@ -1338,19 +1392,30 @@ async function createTestRoom(guild, testerId, queueItem, parentChannel) {
             },
             {
                 id: testerId,
-                allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel,
+                    PermissionsBitField.Flags.SendMessages,
+                    PermissionsBitField.Flags.ReadMessageHistory
+                ],
             },
             {
                 id: queueItem.userId,
-                allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel,
+                    PermissionsBitField.Flags.SendMessages,
+                    PermissionsBitField.Flags.ReadMessageHistory
+                ],
             },
             {
                 id: client.user.id,
-                allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels],
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel,
+                    PermissionsBitField.Flags.SendMessages,
+                    PermissionsBitField.Flags.ManageChannels
+                ],
             },
         ],
     });
-
     const verifyInfo = verifiedUsers.get(queueItem.userId);
 
     const infoEmbed = new EmbedBuilder()
@@ -1401,6 +1466,914 @@ function buildVerifyModal() {
 
     return modal;
 }
+function isRankedTier(tier) {
+    return rankedTierOrder.includes(tier);
+}
+
+function getRankedTierForMode(userId, mode) {
+    const player = verifiedUsers.get(userId);
+
+    if (!player) return null;
+
+    if (!player.tiers || typeof player.tiers !== "object") {
+        return null;
+    }
+
+    return player.tiers[mode] || null;
+}
+
+function canJoinRanked(userId, mode) {
+    const tier = getRankedTierForMode(userId, mode);
+
+    if (!tier) return false;
+
+    return isRankedTier(tier);
+}
+
+function getRankedFirstTo(tier) {
+    return rankedFirstTo[tier] || null;
+}
+
+function getRankedTierAfterWin(tier) {
+    return rankedTierUp[tier] || tier;
+}
+
+function getRankedTierAfterLoss(tier) {
+    return rankedTierDown[tier] || tier;
+}
+    // ========================================
+// RANKED QUEUE SYSTEM
+// ========================================
+
+function getRankedQueueKey(mode, tier) {
+    return `${mode}:${tier}`;
+}
+
+function getRankedQueue(mode, tier) {
+    const key = getRankedQueueKey(mode, tier);
+
+    if (!rankedQueues.has(key)) {
+        rankedQueues.set(key, []);
+    }
+
+    return rankedQueues.get(key);
+}
+
+function isUserInRankedQueue(userId) {
+    for (const queue of rankedQueues.values()) {
+        if (queue.includes(userId)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function removeUserFromRankedQueue(userId) {
+    for (const [key, queue] of rankedQueues.entries()) {
+
+        const index = queue.indexOf(userId);
+
+        if (index !== -1) {
+            queue.splice(index, 1);
+        }
+
+        if (queue.length === 0) {
+            rankedQueues.delete(key);
+        }
+    }
+}
+
+function addUserToRankedQueue(userId, mode) {
+
+    const tier = getRankedTierForMode(userId, mode);
+
+    if (!tier || !isRankedTier(tier)) {
+        return {
+            success: false,
+            reason: "LOCKED"
+        };
+    }
+
+    if (isUserInRankedQueue(userId)) {
+        return {
+            success: false,
+            reason: "ALREADY_QUEUE"
+        };
+    }
+
+    const queue = getRankedQueue(mode, tier);
+
+    queue.push(userId);
+
+    return {
+        success: true,
+        mode,
+        tier,
+        queueSize: queue.length
+    };
+}
+
+function getRankedOpponent(mode, tier, userId) {
+
+    const queue = getRankedQueue(mode, tier);
+
+    const opponentIndex = queue.findIndex(
+        id => id !== userId
+    );
+
+    if (opponentIndex === -1) {
+        return null;
+    }
+
+    const opponentId = queue[opponentIndex];
+
+    queue.splice(opponentIndex, 1);
+
+    if (queue.length === 0) {
+        rankedQueues.delete(
+            getRankedQueueKey(mode, tier)
+        );
+    }
+
+    return opponentId;
+}
+    // ========================================
+// CREATE RANKED FIGHT ROOM
+// ========================================
+
+async function createRankedFightRoom(
+    guild,
+    player1Id,
+    player2Id,
+    mode,
+    tier
+) {
+    const player1 = await guild.members
+        .fetch(player1Id)
+        .catch(() => null);
+
+    const player2 = await guild.members
+        .fetch(player2Id)
+        .catch(() => null);
+
+    if (!player1 || !player2) {
+        throw new Error(
+            "ไม่พบสมาชิกผู้เล่นในเซิร์ฟเวอร์"
+        );
+    }
+
+    const firstTo = getRankedFirstTo(tier);
+
+    if (!firstTo) {
+        throw new Error(
+            `ไม่พบ First to สำหรับ Tier ${tier}`
+        );
+    }
+
+    const roomNumber =
+        Math.floor(
+            1000 + Math.random() * 9000
+        );
+
+    const roomName =
+        `${tier.toLowerCase()}-fights-${mode.toLowerCase()}-${roomNumber}`;
+
+    const permissionOverwrites = [
+        {
+            id: guild.roles.everyone.id,
+            deny: [
+                PermissionsBitField.Flags.ViewChannel
+            ]
+        },
+        {
+            id: player1Id,
+            allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory
+            ]
+        },
+        {
+            id: player2Id,
+            allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory
+            ]
+        }
+    ];
+
+    const testerRole = guild.roles.cache.find(
+        role => role.name === testerRoleName
+    );
+
+    if (testerRole) {
+        permissionOverwrites.push({
+            id: testerRole.id,
+            allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory
+            ]
+        });
+    }
+
+    const adminRole = guild.roles.cache.find(
+        role => role.name === adminRoleName
+    );
+
+    if (adminRole) {
+        permissionOverwrites.push({
+            id: adminRole.id,
+            allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory
+            ]
+        });
+    }
+
+    const channel =
+        await guild.channels.create({
+            name: roomName,
+            type: ChannelType.GuildText,
+            permissionOverwrites
+        });
+
+    const matchId =
+        `RANKED-${Date.now()}-${roomNumber}`;
+
+    const matchData = {
+        matchId,
+        channelId: channel.id,
+        mode,
+        startingTier: tier,
+        firstTo,
+
+        player1: {
+            userId: player1Id,
+            score: 0,
+            reportedResult: null,
+            confirmed: false
+        },
+
+        player2: {
+            userId: player2Id,
+            score: 0,
+            reportedResult: null,
+            confirmed: false
+        },
+
+        status: "FIGHTING",
+        createdAt: Date.now()
+    };
+
+    rankedMatches.set(
+        matchId,
+        matchData
+    );
+
+    const embed =
+        new EmbedBuilder()
+            .setTitle("🏆 Ranked Fight")
+            .setDescription(
+                [
+                    `**Mode:** ${mode}`,
+                    `**Starting Tier:** ${tier}`,
+                    `**Format:** First to ${firstTo}`,
+                    "",
+                    `🥊 <@${player1Id}>`,
+                    `⚔️`,
+                    `🥊 <@${player2Id}>`,
+                    "",
+                    "เมื่อแข่งจบ ให้ผู้ชนะกด **🏆 ฉันชนะ**",
+                    "และผู้แพ้กด **❌ ฉันแพ้**",
+                    "",
+                    "หากมีปัญหาให้กด **⚠️ Report**"
+                ].join("\n")
+            )
+            .setColor(0x5865F2)
+            .setFooter({
+                text: `Match ID: ${matchId}`
+            });
+
+    const row =
+        new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId(
+                        `ranked_win:${matchId}`
+                    )
+                    .setLabel("ฉันชนะ")
+                    .setEmoji("🏆")
+                    .setStyle(
+                        ButtonStyle.Success
+                    ),
+
+                new ButtonBuilder()
+                    .setCustomId(
+                        `ranked_loss:${matchId}`
+                    )
+                    .setLabel("ฉันแพ้")
+                    .setEmoji("❌")
+                    .setStyle(
+                        ButtonStyle.Danger
+                    ),
+
+                new ButtonBuilder()
+                    .setCustomId(
+                        `ranked_report:${matchId}`
+                    )
+                    .setLabel("Report")
+                    .setEmoji("⚠️")
+                    .setStyle(
+                        ButtonStyle.Secondary
+                    )
+            );
+
+    await channel.send({
+        content:
+            `<@${player1Id}> <@${player2Id}>`,
+        embeds: [embed],
+        components: [row]
+    });
+
+    return {
+        matchId,
+        channel
+    };
+}
+    // ========================================
+// RANKED RESULT HELPERS
+// ========================================
+
+function getRankedMatchPlayer(match, userId) {
+
+    if (match.player1.userId === userId) {
+        return match.player1;
+    }
+
+    if (match.player2.userId === userId) {
+        return match.player2;
+    }
+
+    return null;
+}
+
+
+function getRankedMatchOpponent(match, userId) {
+
+    if (match.player1.userId === userId) {
+        return match.player2;
+    }
+
+    if (match.player2.userId === userId) {
+        return match.player1;
+    }
+
+    return null;
+}
+
+
+function validateRankedScore(
+    firstTo,
+    playerScore,
+    opponentScore,
+    result
+) {
+
+    if (
+        !Number.isInteger(playerScore) ||
+        !Number.isInteger(opponentScore)
+    ) {
+        return {
+            valid: false,
+            reason: "คะแนนต้องเป็นตัวเลขจำนวนเต็ม"
+        };
+    }
+
+    if (
+        playerScore < 0 ||
+        opponentScore < 0
+    ) {
+        return {
+            valid: false,
+            reason: "คะแนนต้องไม่ติดลบ"
+        };
+    }
+
+    if (
+        playerScore > firstTo ||
+        opponentScore > firstTo
+    ) {
+        return {
+            valid: false,
+            reason: `คะแนนต้องไม่เกิน First to ${firstTo}`
+        };
+    }
+
+    if (result === "WIN") {
+
+        if (playerScore !== firstTo) {
+            return {
+                valid: false,
+                reason:
+                    `ผู้ชนะต้องมีคะแนน ${firstTo} คะแนน`
+            };
+        }
+
+        if (opponentScore >= firstTo) {
+            return {
+                valid: false,
+                reason:
+                    "คะแนนของผู้แพ้ต้องน้อยกว่า First to"
+            };
+        }
+
+    }
+
+    if (result === "LOSS") {
+
+        if (opponentScore !== firstTo) {
+            return {
+                valid: false,
+                reason:
+                    `คะแนนของผู้ชนะต้องมี ${firstTo} คะแนน`
+            };
+        }
+
+        if (playerScore >= firstTo) {
+            return {
+                valid: false,
+                reason:
+                    "คะแนนของผู้แพ้ต้องน้อยกว่า First to"
+            };
+        }
+
+    }
+
+    return {
+        valid: true
+    };
+}
+
+
+async function finalizeRankedMatch(
+    interaction,
+    match
+) {
+
+    if (match.status === "COMPLETED") {
+        return;
+    }
+
+    const player1 =
+        match.player1;
+
+    const player2 =
+        match.player2;
+
+    if (
+        !player1.reportedResult ||
+        !player2.reportedResult
+    ) {
+        return;
+    }
+
+    if (
+        player1.reportedResult.result ===
+        player2.reportedResult.result
+    ) {
+
+        // ถ้าทั้งสองคนบอกว่าตัวเองชนะ
+        // ถือว่าเป็นผลไม่ตรงกัน
+        if (
+            player1.reportedResult.result === "WIN"
+        ) {
+
+            match.status = "DISPUTED";
+
+            await notifyRankedDispute(
+                interaction,
+                match
+            );
+
+            return;
+        }
+
+    }
+
+    const winner =
+        player1.reportedResult.result === "WIN"
+            ? player1
+            : player2;
+
+    const loser =
+        winner === player1
+            ? player2
+            : player1;
+
+    const winnerScore =
+        winner.reportedResult.playerScore;
+
+    const loserScore =
+        winner.reportedResult.opponentScore;
+
+    const winnerData =
+        verifiedUsers.get(
+            winner.userId
+        );
+
+    const loserData =
+        verifiedUsers.get(
+            loser.userId
+        );
+
+    if (!winnerData || !loserData) {
+        throw new Error(
+            "ไม่พบข้อมูลผู้เล่นสำหรับเปลี่ยน Tier"
+        );
+    }
+
+    winnerData.tiers =
+        winnerData.tiers || {};
+
+    loserData.tiers =
+        loserData.tiers || {};
+
+    const currentWinnerTier =
+        winnerData.tiers[match.mode] ||
+        match.startingTier;
+
+    const currentLoserTier =
+        loserData.tiers[match.mode] ||
+        match.startingTier;
+
+    const winnerNewTier =
+        getRankedTierAfterWin(
+            currentWinnerTier
+        );
+
+    const loserNewTier =
+        getRankedTierAfterLoss(
+            currentLoserTier
+        );
+
+    winnerData.tiers[match.mode] =
+        winnerNewTier;
+
+    loserData.tiers[match.mode] =
+        loserNewTier;
+
+    saveVerifiedUsers();
+
+    match.status = "COMPLETED";
+
+    match.winnerId =
+        winner.userId;
+
+    match.loserId =
+        loser.userId;
+
+    match.finalScore = {
+        winner: winnerScore,
+        loser: loserScore
+    };
+
+    match.completedAt =
+        Date.now();
+
+    // ========================================
+    // ส่งผล Ranked
+    // ========================================
+
+    const resultChannel =
+        interaction.guild.channels.cache.get(
+            RANKED_RESULT_CHANNEL_ID
+        );
+
+    if (resultChannel) {
+
+        const resultEmbed =
+            new EmbedBuilder()
+                .setTitle("🏆 Ranked Result")
+                .setDescription(
+                    [
+                        `**Mode:** ${match.mode}`,
+                        `**Starting Tier:** ${match.startingTier}`,
+                        `**Format:** First to ${match.firstTo}`,
+                        "",
+                        `🏆 **Winner:** <@${winner.userId}>`,
+                        `❌ **Loser:** <@${loser.userId}>`,
+                        "",
+                        `**Score:** ${winnerScore} - ${loserScore}`,
+                        "",
+                        `🏆 <@${winner.userId}>: **${currentWinnerTier} → ${winnerNewTier}**`,
+                        `❌ <@${loser.userId}>: **${currentLoserTier} → ${loserNewTier}**`
+                    ].join("\n")
+                )
+                .setColor(0x57F287)
+                .setFooter({
+                    text:
+                        `Match ID: ${match.matchId}`
+                })
+                .setTimestamp();
+
+        await resultChannel.send({
+            embeds: [resultEmbed]
+        }).catch(console.error);
+    }
+
+    // ========================================
+    // แจ้งในห้อง Fight
+    // ========================================
+
+    const room =
+        interaction.guild.channels.cache.get(
+            match.channelId
+        );
+
+    if (room) {
+
+        await room.send({
+            content:
+                [
+                    "🏆 **Ranked Match เสร็จสิ้น**",
+                    "",
+                    `ผู้ชนะ: <@${winner.userId}>`,
+                    `ผู้แพ้: <@${loser.userId}>`,
+                    `คะแนน: **${winnerScore} - ${loserScore}**`,
+                    "",
+                    `🏆 ${currentWinnerTier} → **${winnerNewTier}**`,
+                    `❌ ${currentLoserTier} → **${loserNewTier}**`,
+                    "",
+                    "ห้องนี้จะถูกปิดในอีกไม่กี่วินาที"
+                ].join("\n")
+        }).catch(() => {});
+
+        setTimeout(() => {
+
+            room.delete(
+                "Ranked match completed"
+            ).catch(() => {});
+
+        }, 5000);
+    }
+}
+
+
+async function notifyRankedDispute(
+    interaction,
+    match
+) {
+
+    const room =
+        interaction.guild.channels.cache.get(
+            match.channelId
+        );
+
+    const testerRole =
+        interaction.guild.roles.cache.find(
+            role =>
+                role.name === testerRoleName
+        );
+
+    const adminRole =
+        interaction.guild.roles.cache.find(
+            role =>
+                role.name === adminRoleName
+        );
+
+    const mentions = [];
+
+    if (testerRole) {
+        mentions.push(
+            `<@&${testerRole.id}>`
+        );
+    }
+
+    if (adminRole) {
+        mentions.push(
+            `<@&${adminRole.id}>`
+        );
+    }
+
+    if (room) {
+
+        const resolveRow =
+    new ActionRowBuilder()
+        .addComponents(
+
+            new ButtonBuilder()
+                .setCustomId(
+                    `ranked_resolve:${match.matchId}:player1`
+                )
+                .setLabel("ให้ Player 1 ชนะ")
+                .setEmoji("🏆")
+                .setStyle(
+                    ButtonStyle.Success
+                ),
+
+            new ButtonBuilder()
+                .setCustomId(
+                    `ranked_resolve:${match.matchId}:player2`
+                )
+                .setLabel("ให้ Player 2 ชนะ")
+                .setEmoji("🏆")
+                .setStyle(
+                    ButtonStyle.Success
+                )
+        );
+
+await room.send({
+    content:
+        [
+            mentions.join(" "),
+            "",
+            "⚠️ **Ranked Match ถูก Dispute**",
+            "",
+            "ผลการแข่งขันของผู้เล่นไม่ตรงกัน",
+            "",
+            `🥊 Player 1: <@${match.player1.userId}>`,
+            `🥊 Player 2: <@${match.player2.userId}>`,
+            "",
+            `Match ID: ${match.matchId}`,
+            "",
+            "Tester/Admin กรุณาเลือกผู้ชนะ"
+        ].join("\n"),
+    components: [
+        resolveRow
+    ]
+}).catch(console.error);
+    }
+}
+    // ========================================
+// RANKED DISPUTE RESOLUTION
+// ========================================
+
+function isRankedStaff(member) {
+
+    if (!member) {
+        return false;
+    }
+
+    return (
+        member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+        ) ||
+        member.roles.cache.some(
+            role =>
+                role.name === testerRoleName ||
+                role.name === adminRoleName
+        )
+    );
+}
+// ========================================
+// RANKED MATCHMAKING
+// ========================================
+
+async function tryMatchRankedPlayer(
+    guild,
+    userId,
+    mode,
+    tier
+) {
+    const opponentId =
+        getRankedOpponent(
+            mode,
+            tier,
+            userId
+        );
+
+    // ยังไม่มีคู่แข่ง
+    if (!opponentId) {
+        return null;
+    }
+
+    // ตรวจ Tier ปัจจุบันของทั้งสองคนอีกครั้ง
+    const playerTier =
+        getRankedTierForMode(
+            userId,
+            mode
+        );
+
+    const opponentTier =
+        getRankedTierForMode(
+            opponentId,
+            mode
+        );
+
+    // Tier เปลี่ยนระหว่างรอคิว
+    if (
+        playerTier !== tier ||
+        opponentTier !== tier
+    ) {
+        removeUserFromRankedQueue(userId);
+        removeUserFromRankedQueue(opponentId);
+
+        return null;
+    }
+
+    // สร้าง Fight Room
+    const match =
+        await createRankedFightRoom(
+            guild,
+            userId,
+            opponentId,
+            mode,
+            tier
+        );
+
+    return match;
+}
+    // ========================================
+// RANKED MODE BUTTONS
+// ========================================
+
+function buildRankedModeButtons(userId) {
+
+    const rows = [];
+    let row = new ActionRowBuilder();
+
+    for (const mode of modeOptions) {
+
+        const tier =
+            getRankedTierForMode(
+                userId,
+                mode
+            );
+
+        const unlocked =
+            canJoinRanked(
+                userId,
+                mode
+            );
+
+        const button =
+            new ButtonBuilder()
+                .setCustomId(
+                    `ranked_queue:${mode}`
+                )
+                .setLabel(
+                    unlocked
+                        ? `${mode} • ${tier}`
+                        : `${mode} • 🔒`
+                )
+                .setStyle(
+                    unlocked
+                        ? ButtonStyle.Primary
+                        : ButtonStyle.Secondary
+                )
+                .setDisabled(!unlocked);
+
+        row.addComponents(button);
+
+        if (row.components.length === 5) {
+            rows.push(row);
+            row = new ActionRowBuilder();
+        }
+    }
+
+    if (row.components.length > 0) {
+        rows.push(row);
+    }
+
+        return rows;
+}
+
+
+// ========================================
+// RANKED CANCEL QUEUE BUTTON
+// ========================================
+
+function buildRankedCancelButton() {
+    return new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId("ranked_cancel_queue")
+                .setLabel("ออกจาก Ranked Queue")
+                .setEmoji("❌")
+                .setStyle(ButtonStyle.Danger)
+        );
+}
+    function isRankedStaff(member) {
+    if (!member) {
+        return false;
+    }
+
+    return (
+        member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+        ) ||
+        member.roles.cache.some(
+            role =>
+                role.name === testerRoleName ||
+                role.name === adminRoleName
+        )
+    );
+}
+
 client.on("interactionCreate", async (interaction) => {
 
     console.log(
@@ -1410,6 +2383,396 @@ client.on("interactionCreate", async (interaction) => {
             ? interaction.customId
             : "not button"
     );
+    // ========================================
+// OPEN RANKED PANEL
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId === "ranked_open"
+) {
+    const userId = interaction.user.id;
+
+    const rankedRows =
+        buildRankedModeButtons(userId);
+
+    await interaction.reply({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle("🏆 Ranked ของคุณ")
+                .setDescription(
+                    [
+                        "เลือก Mode ที่ต้องการเล่น",
+                        "",
+                        "🔓 Mode ที่มี Tier สามารถเข้า Ranked ได้",
+                        "🔒 Mode ที่ยังไม่มี Tier จะไม่สามารถเข้าได้",
+                        "",
+                        "Tier Ranked จะเปลี่ยนแยกกันในแต่ละ Mode"
+                    ].join("\n")
+                )
+                .setColor(0x5865F2)
+                .setFooter({
+                    text: "Zenith Community • Ranked"
+                })
+        ],
+        components: [
+            ...rankedRows,
+            buildRankedCancelButton()
+        ],
+        flags: MessageFlags.Ephemeral
+    });
+
+    return;
+}
+    // ========================================
+// RANKED WIN BUTTON
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId.startsWith("ranked_win:")
+) {
+
+    const matchId =
+        interaction.customId.split(":")[1];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const player =
+        getRankedMatchPlayer(
+            match,
+            interaction.user.id
+        );
+
+    if (!player) {
+
+        await interaction.reply({
+            content:
+                "❌ คุณไม่ได้อยู่ในการแข่งขันนี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (match.status !== "FIGHTING") {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้ไม่ได้อยู่ในสถานะแข่งขันแล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const modal =
+        new ModalBuilder()
+            .setCustomId(
+                `ranked_result_modal:${matchId}:WIN`
+            )
+            .setTitle("🏆 รายงานผล Ranked");
+
+    const playerScoreInput =
+        new TextInputBuilder()
+            .setCustomId("player_score")
+            .setLabel("คะแนนของคุณ")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder(
+                `เช่น ${match.firstTo}`
+            )
+            .setRequired(true);
+
+    const opponentScoreInput =
+        new TextInputBuilder()
+            .setCustomId("opponent_score")
+            .setLabel("คะแนนคู่แข่ง")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("เช่น 3")
+            .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder()
+            .addComponents(
+                playerScoreInput
+            ),
+
+        new ActionRowBuilder()
+            .addComponents(
+                opponentScoreInput
+            )
+    );
+
+    await interaction.showModal(modal);
+
+    return;
+}
+    // ========================================
+// RANKED LOSS BUTTON
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId.startsWith("ranked_loss:")
+) {
+
+    const matchId =
+        interaction.customId.split(":")[1];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const player =
+        getRankedMatchPlayer(
+            match,
+            interaction.user.id
+        );
+
+    if (!player) {
+
+        await interaction.reply({
+            content:
+                "❌ คุณไม่ได้อยู่ในการแข่งขันนี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (match.status !== "FIGHTING") {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้ไม่ได้อยู่ในสถานะแข่งขันแล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const modal =
+        new ModalBuilder()
+            .setCustomId(
+                `ranked_result_modal:${matchId}:LOSS`
+            )
+            .setTitle("❌ รายงานผล Ranked");
+
+    const playerScoreInput =
+        new TextInputBuilder()
+            .setCustomId("player_score")
+            .setLabel("คะแนนของคุณ")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("เช่น 3")
+            .setRequired(true);
+
+    const opponentScoreInput =
+        new TextInputBuilder()
+            .setCustomId("opponent_score")
+            .setLabel("คะแนนคู่แข่ง")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder(
+                `เช่น ${match.firstTo}`
+            )
+            .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder()
+            .addComponents(
+                playerScoreInput
+            ),
+
+        new ActionRowBuilder()
+            .addComponents(
+                opponentScoreInput
+            )
+    );
+
+    await interaction.showModal(modal);
+
+    return;
+}
+// ========================================
+// RANKED QUEUE BUTTON
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId.startsWith("ranked_queue:")
+) {
+    const mode =
+        interaction.customId.split(":")[1];
+
+    const userId =
+        interaction.user.id;
+
+    const tier =
+        getRankedTierForMode(
+            userId,
+            mode
+        );
+
+    // ตรวจว่า Mode นี้ปลดล็อก Ranked หรือไม่
+    if (
+        !tier ||
+        !isRankedTier(tier)
+    ) {
+        await interaction.reply({
+            content:
+                `❌ คุณยังไม่ปลดล็อก Ranked สำหรับ **${mode}**`,
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ตรวจว่าผู้เล่นอยู่ Queue อื่นอยู่หรือไม่
+    if (isUserInRankedQueue(userId)) {
+        await interaction.reply({
+            content:
+                "❌ คุณอยู่ใน Ranked Queue อยู่แล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // เพิ่มเข้า Queue
+    const result =
+        addUserToRankedQueue(
+            userId,
+            mode
+        );
+
+    if (!result.success) {
+
+        let message =
+            "❌ ไม่สามารถเข้า Ranked Queue ได้";
+
+        if (
+            result.reason ===
+            "ALREADY_QUEUE"
+        ) {
+            message =
+                "❌ คุณอยู่ใน Ranked Queue อยู่แล้ว";
+        }
+
+        if (
+            result.reason ===
+            "LOCKED"
+        ) {
+            message =
+                `❌ คุณยังไม่ปลดล็อก Ranked สำหรับ **${mode}**`;
+        }
+
+        await interaction.reply({
+            content: message,
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // แจ้งว่าเข้า Queue แล้ว
+    await interaction.reply({
+        content: [
+            "🏆 **เข้าสู่ Ranked Queue แล้ว**",
+            "",
+            `🎮 Mode: **${mode}**`,
+            `🏅 Tier: **${tier}**`,
+            `⚔️ Format: **First to ${getRankedFirstTo(tier)}**`,
+            "",
+            "กำลังค้นหาคู่แข่ง Tier เดียวกัน..."
+        ].join("\n"),
+        flags: MessageFlags.Ephemeral
+    });
+
+    // พยายามจับคู่
+    try {
+
+        const match =
+            await tryMatchRankedPlayer(
+                interaction.guild,
+                userId,
+                mode,
+                tier
+            );
+
+        if (match) {
+
+            await interaction.followUp({
+                content:
+                    `⚔️ **พบคู่แข่งแล้ว!**\n\nห้องแข่ง: <#${match.channel.id}>`,
+                flags: MessageFlags.Ephemeral
+            });
+
+        }
+
+    } catch (error) {
+
+        console.error(
+            "❌ Ranked matchmaking error:",
+            error
+        );
+
+        removeUserFromRankedQueue(
+            userId
+        );
+
+        await interaction.followUp({
+            content:
+                "❌ เกิดข้อผิดพลาดในการสร้างห้อง Ranked กรุณาลองใหม่",
+            flags: MessageFlags.Ephemeral
+        }).catch(() => {});
+    }
+
+    return;
+}
+    if (
+    interaction.isButton() &&
+    interaction.customId === "ranked_cancel_queue"
+) {
+    const userId = interaction.user.id;
+
+    if (!isUserInRankedQueue(userId)) {
+        await interaction.reply({
+            content: "❌ คุณไม่ได้อยู่ใน Ranked Queue",
+            flags: MessageFlags.Ephemeral
+        });
+        return;
+    }
+
+    removeUserFromRankedQueue(userId);
+
+    await interaction.reply({
+        content: "✅ ออกจาก Ranked Queue แล้ว",
+        flags: MessageFlags.Ephemeral
+    });
+
+    return;
+}
 if (
     interaction.isButton() &&
     interaction.customId === "call_next"
@@ -1723,10 +3086,7 @@ if (interaction.isChatInputCommand()) {
 
     const playerData = {
     gameName: minecraftName,
-    imageUrl: `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(minecraftName)}/full`,
-    uuid: uuid,
-    tier: oldData?.tier || "-",
-    points: oldData?.points || "0",
+    imageUrl: getMinecraftRenderUrl(minecraftName),
     tester: isTargetTester === true,
     confirmed: true
 };
@@ -2160,6 +3520,717 @@ if (interaction.customId === "tier_select") {
     );
 
     await interaction.showModal(modal);
+
+    return;
+}
+    // ========================================
+// RANKED RESULT MODAL
+// ========================================
+
+if (
+    interaction.isModalSubmit() &&
+    interaction.customId.startsWith(
+        "ranked_result_modal:"
+    )
+) {
+
+    const parts =
+        interaction.customId.split(":");
+
+    const matchId = parts[1];
+    const result = parts[2];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const player =
+        getRankedMatchPlayer(
+            match,
+            interaction.user.id
+        );
+
+    if (!player) {
+
+        await interaction.reply({
+            content:
+                "❌ คุณไม่ได้อยู่ในการแข่งขันนี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (match.status !== "FIGHTING") {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้ไม่ได้อยู่ในสถานะแข่งขันแล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const playerScore =
+        Number(
+            interaction.fields.getTextInputValue(
+                "player_score"
+            )
+        );
+
+    const opponentScore =
+        Number(
+            interaction.fields.getTextInputValue(
+                "opponent_score"
+            )
+        );
+
+    const validation =
+        validateRankedScore(
+            match.firstTo,
+            playerScore,
+            opponentScore,
+            result
+        );
+
+    if (!validation.valid) {
+
+        await interaction.reply({
+            content:
+                `❌ ${validation.reason}`,
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    player.reportedResult = {
+        result,
+        playerScore,
+        opponentScore,
+        reportedBy:
+            interaction.user.id,
+        reportedAt:
+            Date.now()
+    };
+
+    player.confirmed = false;
+
+    const opponent =
+        getRankedMatchOpponent(
+            match,
+            interaction.user.id
+        );
+
+    await interaction.reply({
+        content:
+            [
+                "✅ **ส่งผลการแข่งขันแล้ว**",
+                "",
+                `คะแนน: **${playerScore} - ${opponentScore}**`,
+                "",
+                `รอ <@${opponent.userId}> ยืนยันผล`,
+                "",
+                "หากผลไม่ถูกต้อง ให้กด Report"
+            ].join("\n"),
+        flags: MessageFlags.Ephemeral
+    });
+
+    const room =
+        interaction.guild.channels.cache.get(
+            match.channelId
+        );
+
+    if (room) {
+
+        const confirmRow =
+            new ActionRowBuilder()
+                .addComponents(
+
+                    new ButtonBuilder()
+                        .setCustomId(
+                            `ranked_confirm:${matchId}`
+                        )
+                        .setLabel("ยืนยันผล")
+                        .setEmoji("✅")
+                        .setStyle(
+                            ButtonStyle.Success
+                        ),
+
+                    new ButtonBuilder()
+                        .setCustomId(
+                            `ranked_dispute:${matchId}`
+                        )
+                        .setLabel("ผลไม่ตรง")
+                        .setEmoji("⚠️")
+                        .setStyle(
+                            ButtonStyle.Danger
+                        )
+                );
+
+        await room.send({
+            content:
+                [
+                    `📋 <@${opponent.userId}>`,
+                    "",
+                    `<@${interaction.user.id}> รายงานว่า:`,
+                    `**${result === "WIN" ? "🏆 ชนะ" : "❌ แพ้"}**`,
+                    `คะแนน **${playerScore} - ${opponentScore}**`,
+                    "",
+                    "กรุณาตรวจสอบและยืนยันผล"
+                ].join("\n"),
+            components: [
+                confirmRow
+            ]
+        });
+    }
+
+    return;
+}
+    // ========================================
+// RANKED CONFIRM RESULT
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId.startsWith(
+        "ranked_confirm:"
+    )
+) {
+
+    const matchId =
+        interaction.customId.split(":")[1];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (match.status !== "FIGHTING") {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้ไม่ได้อยู่ในสถานะแข่งขันแล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const player =
+        getRankedMatchPlayer(
+            match,
+            interaction.user.id
+        );
+
+    if (!player) {
+
+        await interaction.reply({
+            content:
+                "❌ คุณไม่ได้อยู่ในการแข่งขันนี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const opponent =
+        getRankedMatchOpponent(
+            match,
+            interaction.user.id
+        );
+
+    if (!opponent) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบคู่แข่งของคุณ",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ========================================
+    // ต้องเป็นคู่แข่งเท่านั้นที่กดยืนยัน
+    // ========================================
+
+    if (!opponent.reportedResult) {
+
+        await interaction.reply({
+            content:
+                "❌ ยังไม่มีการรายงานผลจากคู่แข่ง",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (player.reportedResult) {
+
+        await interaction.reply({
+            content:
+                "❌ คุณได้รายงานผลของตัวเองไปแล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ========================================
+    // รับผลของคู่แข่ง
+    // แล้วสร้างผลของผู้ยืนยันแบบกลับด้าน
+    // ========================================
+
+    player.reportedResult = {
+        result:
+            opponent.reportedResult.result === "WIN"
+                ? "LOSS"
+                : "WIN",
+
+        playerScore:
+            opponent.reportedResult.opponentScore,
+
+        opponentScore:
+            opponent.reportedResult.playerScore,
+
+        reportedBy:
+            interaction.user.id,
+
+        reportedAt:
+            Date.now()
+    };
+
+    player.confirmed = true;
+    opponent.confirmed = true;
+
+    await interaction.reply({
+        content:
+            [
+                "✅ **ยืนยันผลการแข่งขันแล้ว**",
+                "",
+                `คะแนน: **${opponent.reportedResult.playerScore} - ${opponent.reportedResult.opponentScore}**`,
+                "",
+                "กำลังสรุปผลและอัปเดต Tier..."
+            ].join("\n"),
+        flags: MessageFlags.Ephemeral
+    });
+
+    // ========================================
+    // สรุปผล Ranked
+    // ========================================
+
+    try {
+
+        await finalizeRankedMatch(
+            interaction,
+            match
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ Ranked finalize error:",
+            error
+        );
+
+        match.status = "FIGHTING";
+
+        await interaction.followUp({
+            content:
+                "❌ เกิดข้อผิดพลาดในการสรุปผล Ranked กรุณาแจ้ง Tester/Admin",
+            flags: MessageFlags.Ephemeral
+        }).catch(() => {});
+    }
+
+    return;
+}
+// ========================================
+// RANKED REPORT
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId.startsWith(
+        "ranked_report:"
+    )
+) {
+
+    const matchId =
+        interaction.customId.split(":")[1];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const player =
+        getRankedMatchPlayer(
+            match,
+            interaction.user.id
+        );
+
+    if (!player) {
+
+        await interaction.reply({
+            content:
+                "❌ คุณไม่ได้อยู่ในการแข่งขันนี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (
+        match.status === "COMPLETED"
+    ) {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้จบไปแล้ว",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    match.status = "DISPUTED";
+
+    await interaction.reply({
+        content:
+            "⚠️ ส่ง Report แล้ว\nTester/Admin จะเข้ามาตรวจสอบผลการแข่งขัน",
+        flags: MessageFlags.Ephemeral
+    });
+
+    await notifyRankedDispute(
+        interaction,
+        match
+    );
+
+    return;
+}
+// ========================================
+// RANKED DISPUTE RESOLVE BUTTON
+// ========================================
+
+if (
+    interaction.isButton() &&
+    interaction.customId.startsWith(
+        "ranked_resolve:"
+    )
+) {
+
+    const parts =
+        interaction.customId.split(":");
+
+    const matchId = parts[1];
+    const winnerKey = parts[2];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (!isRankedStaff(interaction.member)) {
+
+        await interaction.reply({
+            content:
+                "❌ เฉพาะ Tester/Admin เท่านั้นที่สามารถตัดสิน Dispute ได้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    if (match.status !== "DISPUTED") {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้ไม่ได้อยู่ในสถานะ Dispute",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    const winner =
+        winnerKey === "player1"
+            ? match.player1
+            : match.player2;
+
+    const loser =
+        winnerKey === "player1"
+            ? match.player2
+            : match.player1;
+
+    const modal =
+        new ModalBuilder()
+            .setCustomId(
+                `ranked_resolve_modal:${matchId}:${winnerKey}`
+            )
+            .setTitle("⚠️ ตัดสิน Ranked Dispute");
+
+    const winnerScoreInput =
+        new TextInputBuilder()
+            .setCustomId("winner_score")
+            .setLabel("คะแนนผู้ชนะ")
+            .setStyle(
+                TextInputStyle.Short
+            )
+            .setPlaceholder(
+                `ต้องเป็น ${match.firstTo}`
+            )
+            .setRequired(true);
+
+    const loserScoreInput =
+        new TextInputBuilder()
+            .setCustomId("loser_score")
+            .setLabel("คะแนนผู้แพ้")
+            .setStyle(
+                TextInputStyle.Short
+            )
+            .setPlaceholder(
+                "เช่น 3"
+            )
+            .setRequired(true);
+
+    modal.addComponents(
+
+        new ActionRowBuilder()
+            .addComponents(
+                winnerScoreInput
+            ),
+
+        new ActionRowBuilder()
+            .addComponents(
+                loserScoreInput
+            )
+    );
+
+    await interaction.showModal(modal);
+
+    return;
+}
+    // ========================================
+// RANKED DISPUTE RESOLVE MODAL
+// ========================================
+
+if (
+    interaction.isModalSubmit() &&
+    interaction.customId.startsWith(
+        "ranked_resolve_modal:"
+    )
+) {
+
+    const parts =
+        interaction.customId.split(":");
+
+    const matchId = parts[1];
+    const winnerKey = parts[2];
+
+    const match =
+        rankedMatches.get(matchId);
+
+    if (!match) {
+
+        await interaction.reply({
+            content:
+                "❌ ไม่พบ Ranked Match นี้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ========================================
+    // ตรวจสอบ Tester / Admin
+    // ========================================
+
+    if (!isRankedStaff(interaction.member)) {
+
+        await interaction.reply({
+            content:
+                "❌ เฉพาะ Tester/Admin เท่านั้นที่สามารถตัดสิน Dispute ได้",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ========================================
+    // ตรวจสอบสถานะ Match
+    // ========================================
+
+    if (match.status !== "DISPUTED") {
+
+        await interaction.reply({
+            content:
+                "❌ Match นี้ไม่ได้อยู่ในสถานะ Dispute",
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ========================================
+    // รับคะแนน
+    // ========================================
+
+    const winnerScore =
+        Number(
+            interaction.fields.getTextInputValue(
+                "winner_score"
+            )
+        );
+
+    const loserScore =
+        Number(
+            interaction.fields.getTextInputValue(
+                "loser_score"
+            )
+        );
+
+    // ========================================
+    // ตรวจสอบคะแนน
+    // ========================================
+
+    const validation =
+        validateRankedScore(
+            match.firstTo,
+            winnerScore,
+            loserScore,
+            "WIN"
+        );
+
+    if (!validation.valid) {
+
+        await interaction.reply({
+            content:
+                `❌ ${validation.reason}`,
+            flags: MessageFlags.Ephemeral
+        });
+
+        return;
+    }
+
+    // ========================================
+    // กำหนดผู้ชนะ / ผู้แพ้
+    // ========================================
+
+    const winner =
+        winnerKey === "player1"
+            ? match.player1
+            : match.player2;
+
+    const loser =
+        winnerKey === "player1"
+            ? match.player2
+            : match.player1;
+
+    // ========================================
+    // บันทึกผลที่ Tester/Admin ตัดสิน
+    // ========================================
+
+    winner.reportedResult = {
+        result: "WIN",
+        playerScore: winnerScore,
+        opponentScore: loserScore,
+        reportedBy: interaction.user.id,
+        reportedAt: Date.now()
+    };
+
+    loser.reportedResult = {
+        result: "LOSS",
+        playerScore: loserScore,
+        opponentScore: winnerScore,
+        reportedBy: interaction.user.id,
+        reportedAt: Date.now()
+    };
+
+    winner.confirmed = true;
+    loser.confirmed = true;
+
+    // ========================================
+    // ให้ finalizeRankedMatch() ทำงาน
+    // ========================================
+
+    match.status = "FIGHTING";
+
+    await interaction.reply({
+        content:
+            [
+                "✅ **ตัดสิน Ranked Dispute แล้ว**",
+                "",
+                `🏆 ผู้ชนะ: <@${winner.userId}>`,
+                `❌ ผู้แพ้: <@${loser.userId}>`,
+                "",
+                `คะแนน: **${winnerScore} - ${loserScore}**`,
+                "",
+                "กำลังอัปเดต Tier..."
+            ].join("\n"),
+        flags: MessageFlags.Ephemeral
+    });
+
+    try {
+
+        await finalizeRankedMatch(
+            interaction,
+            match
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ Ranked dispute finalize error:",
+            error
+        );
+
+        match.status = "DISPUTED";
+
+        await interaction.followUp({
+            content:
+                "❌ เกิดข้อผิดพลาดในการอัปเดต Tier กรุณาตรวจสอบ Console",
+            flags: MessageFlags.Ephemeral
+        }).catch(() => {});
+    }
 
     return;
 }
@@ -2686,9 +4757,9 @@ return;
 
        if (minecraftName !== "ไม่ทราบชื่อ") {
 
-    dutyEmbed.setThumbnail(
-        `https://minotar.net/helm/${encodeURIComponent(minecraftName)}/128.png`
-    );
+        dutyEmbed.setThumbnail(
+            getMinecraftRenderUrl(minecraftName)
+        );
 
 }
 
@@ -2833,9 +4904,9 @@ if (interaction.isButton()) {
             gameName:
                 request.minecraftName,
 
-           imageUrl:
-    `https://minotar.net/helm/${encodeURIComponent(request.minecraftName)}/128.png`,
-            uuid: request.minecraftUuid,
+           imageUrl: 
+                getMinecraftRenderUrl(request.minecraftName),
+
             tier:
                 oldData?.tier || "-",
 
@@ -3119,9 +5190,9 @@ if (interaction.customId === "verify_modal") {
                         : 0x3498db
                 )
                 .setTitle("คำขอยืนยันตัวตน")
-.setThumbnail(
-    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(minecraftName)}/head`
-)
+                .setThumbnail(
+                    getMinecraftRenderUrl(minecraftName)
+                )
                 .addFields(
                     {
                         name: "Discord",
@@ -3363,6 +5434,13 @@ if (picked.winnerSide === "tester" && testerScore <= playerScore) {
 
             return;
         }
+        // ========================================
+        // บันทึก Tier แยกตาม Mode
+        // ========================================
+
+        player.tiers = player.tiers || {};
+
+        player.tiers[picked.mode] = tier;
 
         const playerName =
             player.gameName || "Player";
@@ -3680,10 +5758,10 @@ await updatePlayerInfoMessage(
                     }
 
                 )
-                .setThumbnail(
-                    applicant?.gameName
-                        ? `https://mc-heads.net/avatar/${applicant.gameName}/256`
-                        : null
+            .setThumbnail(
+                applicant?.gameName
+                    ? getMinecraftRenderUrl(applicant.gameName)
+                    : null
                 )
                 .setTimestamp()
                 .setFooter({
@@ -3945,14 +6023,67 @@ if (!isAdmin) {
     return;
 }
         const parts = message.content.trim().split(/\s+/);
-        if (parts.length > 1) {
-            const mode = parts[1].toUpperCase();
-            if (modeOptions.includes(mode)) {
-                channelModes.set(message.channelId, mode);
-                saveChannelModes();
-            }
-        }
-        const state = getState(message.channelId);
+const setupType = parts[1]?.toUpperCase();
+
+
+// ========================================
+// SETUP RANKED
+// ========================================
+
+if (setupType === "RANKED") {
+
+    const rankedEmbed =
+        new EmbedBuilder()
+            .setTitle("🏆 Zenith Ranked")
+            .setDescription(
+                [
+                    "ระบบ Ranked สำหรับการแข่งขันแบบ Competitive",
+                    "",
+                    "🔓 ต้องมี **LT3 ขึ้นไป** ใน Mode นั้น",
+                    "🎮 Ranked แยก Tier ตามแต่ละ Mode",
+                    "⚔️ ระบบจะจับคู่ผู้เล่น Tier เดียวกัน",
+                    "",
+                    "กดปุ่มด้านล่างเพื่อดู Ranked ของคุณ"
+                ].join("\n")
+            )
+            .setColor(0x5865F2)
+            .setFooter({
+                text: "Zenith Community • Ranked"
+            });
+
+    const rankedButton =
+        new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId("ranked_open")
+                    .setLabel("เปิด Ranked")
+                    .setEmoji("🏆")
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+    await message.channel.send({
+        embeds: [rankedEmbed],
+        components: [rankedButton]
+    });
+
+    return;
+}
+
+
+// ========================================
+// SETUP TEST เดิม
+// ========================================
+
+if (parts.length > 1) {
+    const mode = setupType;
+
+    if (modeOptions.includes(mode)) {
+        channelModes.set(message.channelId, mode);
+        saveChannelModes();
+    }
+}
+
+const state = getState(message.channelId);
 
 const msg = await message.channel.send({
     embeds: [buildEmbed(message.channelId)],
@@ -4231,6 +6362,40 @@ if (member) {
 
 verifiedUsers.set(discordId, playerData);
 saveVerifiedUsers();
+// ========================================
+// Sync Player ไปยัง Zenith API
+// ให้ Website ใช้ Minecraft name เป็นชื่อหลัก
+// ========================================
+
+try {
+    const token = await apiClient.getApiToken();
+
+    const discordUser = await client.users
+        .fetch(discordId)
+        .catch(() => null);
+
+    if (discordUser) {
+        await apiClient.getOrCreatePlayer(
+            token,
+            playerData,
+            discordUser
+        );
+
+        console.log(
+            `[API SYNC] ${gameName} (${discordId}) synced successfully`
+        );
+    } else {
+        console.warn(
+            `[API SYNC] ไม่พบ Discord user: ${discordId}`
+        );
+    }
+
+} catch (apiError) {
+    console.error(
+        `[API SYNC] Sync player failed for ${discordId}:`,
+        apiError.message
+    );
+}
 
 // ========================================
 // ลบยศ Combat Rank เดิมทั้งหมด
@@ -4269,56 +6434,50 @@ await updateCombatRank(discordId);
     // ========================================
 
     const embed = new EmbedBuilder()
-        .setColor(
-            tester === true
-                ? 0x9b59b6
-                : 0x3498db
+    .setColor(
+        tester === true
+            ? 0x9b59b6
+            : 0x3498db
+    )
+    .setTitle(
+        tester === true
+            ? "ข้อมูล Tester"
+            : "ข้อมูลผู้เล่น"
+    )
+    .setDescription(
+        tester === true
+            ? "ข้อมูล Tester ที่ยืนยันตัวตนแล้ว"
+            : "ข้อมูลผู้เล่นที่ยืนยันตัวตนแล้ว"
+    )
+    .setThumbnail(
+        getMinecraftRenderUrl(gameName)
         )
-        .setTitle(
-            tester === true
-                ? "ข้อมูล Tester"
-                : "ข้อมูลผู้เล่น"
-        )
-        .setDescription(
-            tester === true
-                ? "ข้อมูล Tester ที่ยืนยันตัวตนแล้ว"
-                : "ข้อมูลผู้เล่นที่ยืนยันตัวตนแล้ว"
-        )
-       .setThumbnail(
-    `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
-)
-        .addFields(
-    {
-        name: "Discord",
-        value: `<@${discordId}>`,
-        inline: true
-    },
-    {
-        name: "Minecraft",
-        value: gameName,
-        inline: true
-    },
-    {
-        name: "Tier",
-        value: playerData.tier,
-        inline: true
-    },
-    {
-        name: "Points",
-        value: String(playerData.points),
-        inline: true
-    }
-)
-        .setThumbnail(
-    `https://minotar.net/helm/${encodeURIComponent(gameName)}/128.png`
-)
-.setImage(
-    `https://starlightskins.lunareclipse.studio/render/default/${encodeURIComponent(gameName)}/full`
-)
-        .setTimestamp()
-        .setFooter({
-            text: "Zenith Community"
-        });
+    .addFields(
+        {
+            name: "Discord",
+            value: `<@${discordId}>`,
+            inline: true
+        },
+        {
+            name: "Minecraft",
+            value: gameName,
+            inline: true
+        },
+        {
+            name: "Tier",
+            value: playerData.tier,
+            inline: true
+        },
+        {
+            name: "Points",
+            value: String(playerData.points),
+            inline: true
+        }
+    )
+    .setTimestamp()
+    .setFooter({
+        text: "Zenith Community"
+    });
 
     // ========================================
     // ส่งข้อความ
@@ -4405,7 +6564,7 @@ async function shutdownBot() {
         for (const [queueChannelId, state] of channelStates) {
 
             // ========================================
-            // Tester ที่กำลังเข้าเวร
+            // 1. เอา Tester ออกจากเวร
             // ========================================
 
             if (
@@ -4429,19 +6588,17 @@ async function shutdownBot() {
                         channelModes.get(queueChannelId) ||
                         "ไม่ระบุ";
 
-const notifyChannel =
-    client.channels.cache.get(
-        "1536352503011082404"
-    );
+                    const notifyChannel =
+                        client.channels.cache.get(
+                            TESTER_DUTY_NOTIFY_CHANNEL_ID
+                        );
 
                     if (notifyChannel) {
 
                         const dutyEmbed =
                             new EmbedBuilder()
                                 .setColor(0xe74c3c)
-                                .setTitle(
-                                    "🔴 Tester ออกเวร"
-                                )
+                                .setTitle("🔴 Tester ออกเวร")
                                 .setDescription(
                                     `<@${testerId}> ออกจากเวรแล้ว เนื่องจากบอทกำลังปิด`
                                 )
@@ -4478,36 +6635,93 @@ const notifyChannel =
                                         "Zenith Community • Tester Duty"
                                 });
 
-                        if (
-                            minecraftName !==
-                            "ไม่ทราบชื่อ"
-                        ) {
+                        if (minecraftName !== "ไม่ทราบชื่อ") {
 
-                            dutyEmbed.setThumbnail(
-                                `https://mc-heads.net/avatar/${minecraftName}/128`
-                            );
+                        dutyEmbed.setThumbnail(
+                            getMinecraftRenderUrl(minecraftName)
+                        );
 
                         }
 
                         await notifyChannel.send({
-                            content:
-                                `<@${testerId}>`,
+                            content: `<@${testerId}>`,
                             embeds: [dutyEmbed]
                         }).catch(console.error);
 
                     }
+
                 }
 
-                // ========================================
-                // เอา Tester ทั้งหมดออกจากเวร
-                // ========================================
-
+                // ล้าง Tester ทั้งหมด
                 state.onlineTesters.clear();
 
             }
 
+
             // ========================================
-            // อัปเดต Queue Embed
+            // 2. ล้างคนที่กำลังจองคิว
+            // ========================================
+
+            state.queue = [];
+
+
+            // ========================================
+            // 3. ล้างคนที่กำลังเทส
+            // ========================================
+
+            if (state.currentTesting) {
+
+                console.log(
+                    `ล้างผู้เล่นที่กำลังเทส: ${state.currentTesting.userId}`
+                );
+
+                state.currentTesting = null;
+
+            }
+
+
+            // ========================================
+            // 4. ลบห้อง Test ที่กำลังเปิดอยู่
+            // ========================================
+
+            for (const [roomId, active] of activeTests) {
+
+                if (
+                    active &&
+                    active.queueChannelId === queueChannelId
+                ) {
+
+                    const room =
+                        client.channels.cache.get(roomId);
+
+                    if (room) {
+
+                        console.log(
+                            `ลบห้อง Test: ${room.name}`
+                        );
+
+                        await room.delete(
+                            "Bot shutdown"
+                        ).catch(err => {
+
+                            console.error(
+                                `ลบห้อง Test ไม่สำเร็จ ${roomId}:`,
+                                err.message
+                            );
+
+                        });
+
+                    }
+
+                    activeTests.delete(roomId);
+
+                }
+
+            }
+
+
+            // ========================================
+            // 5. อัปเดต Queue Embed
             // ========================================
 
             if (state.mainMessageId) {
@@ -4527,11 +6741,14 @@ const notifyChannel =
                     if (mainMessage) {
 
                         await mainMessage.edit({
+
                             embeds: [
                                 buildEmbed(queueChannelId)
                             ],
+
                             components:
                                 buildButtons(queueChannelId)
+
                         }).catch(console.error);
 
                     }
@@ -4542,12 +6759,51 @@ const notifyChannel =
 
         }
 
+
+        // ========================================
+        // 6. สำคัญ:
+        //    ห้ามล้าง finishedUsersData
+        // ========================================
+
+        // finishedUsersData
+        // ยังคงอยู่เหมือนเดิม
+        //
+        // เพราะต้องการให้
+        // "เทสเสร็จแล้ว" ยังคงอยู่หลัง Restart
+
+
+        // ========================================
+        // 7. ไม่ต้อง save channelStates
+        // ========================================
+        //
+        // queue / tester / currentTesting
+        // เป็นข้อมูลชั่วคราว
+        //
+        // finishedUsersData เท่านั้นที่ถูกบันทึกไว้
+
+
         console.log(
-            "Tester ถูกนำออกจากเวรทั้งหมดแล้ว"
+            "===== SHUTDOWN CLEANUP COMPLETE ====="
         );
 
         console.log(
-            "ผู้เล่นในคิวยังคงอยู่ใน Queue"
+            "✓ Tester ถูกนำออกจากเวร"
+        );
+
+        console.log(
+            "✓ คิวทั้งหมดถูกล้าง"
+        );
+
+        console.log(
+            "✓ ผู้เล่นที่กำลังเทสถูกล้าง"
+        );
+
+        console.log(
+            "✓ ห้อง Test ที่กำลังเปิดถูกลบ"
+        );
+
+        console.log(
+            "✓ รายชื่อ 'เทสเสร็จแล้ว' ยังคงอยู่"
         );
 
     } catch (err) {
@@ -4559,6 +6815,7 @@ const notifyChannel =
         console.error(err);
 
     }
+
 }
 process.once("SIGINT", async () => {
 

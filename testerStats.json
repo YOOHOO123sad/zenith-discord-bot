@@ -14,23 +14,28 @@
     }
   },
   "1273244831384207431": {
-    "totalTests": 12,
+    "totalTests": 21,
     "playersTested": [
-      "1408359433771290715"
+      "1408359433771290715",
+      "1273244831384207431",
+      "1455849187148038297"
     ],
     "tiersGiven": {
       "LT4": 1,
-      "HT1": 11
+      "HT1": 11,
+      "HT5": 4,
+      "LT5": 1,
+      "LT3": 4
     },
     "modes": {
       "UHC": 1,
-      "SMP": 2,
+      "SMP": 4,
       "NETHPOT": 2,
       "AXEPVP": 2,
-      "MACEPVP": 1,
-      "MACEROCKET": 1,
+      "MACEPVP": 5,
+      "MACEROCKET": 3,
       "CPVP": 1,
-      "DIAPOT": 1,
+      "DIAPOT": 2,
       "SPVP": 1
     }
   }

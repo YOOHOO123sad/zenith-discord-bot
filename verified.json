@@ -39,14 +39,6 @@
     "tester": false,
     "confirmed": true
   },
-  "893118412111372318": {
-    "gameName": "Gu_ntsu_Z",
-    "imageUrl": "https://mc-heads.net/avatar/Gu_ntsu_Z/512",
-    "tier": "-",
-    "points": "0",
-    "tester": true,
-    "confirmed": true
-  },
   "1250807029262585900": {
     "gameName": "MusVE",
     "tier": "-",
@@ -133,22 +125,6 @@
     "tester": true,
     "confirmed": true
   },
-  "979004914858614804": {
-    "gameName": "ei448XD",
-    "imageUrl": "",
-    "tier": "-",
-    "points": "0",
-    "tester": true,
-    "confirmed": true
-  },
-  "1436343932140130426": {
-    "gameName": "Jin_CZB",
-    "imageUrl": "",
-    "tier": "-",
-    "points": "0",
-    "tester": true,
-    "confirmed": true
-  },
   "1120275086700724294": {
     "gameName": "ShockSpare",
     "imageUrl": "",
@@ -187,16 +163,10 @@
     "tier": "-",
     "points": "0",
     "tester": false,
-    "confirmed": true
-  },
-  "1273244831384207431": {
-    "gameName": "ntang_xdd",
-    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/ntang_xdd/full",
-    "uuid": "8849c545-63ad-4cdd-8f9f-f447f7872a8d",
-    "tier": "-",
-    "points": "0",
-    "tester": true,
-    "confirmed": true
+    "confirmed": true,
+    "tiers": {
+      "MACEPVP": "HT5"
+    }
   },
   "1444313400355323914": {
     "gameName": "Exrtza",
@@ -217,9 +187,41 @@
     "confirmed": true
   },
   "1408359433771290715": {
-    "gameName": "TEST",
-    "imageUrl": "https://starlightskins.lunareclipse.studio/render/default/TEST/full",
-    "uuid": "d8d5a923-7b20-43d8-883b-1150148d6955",
+    "gameName": "DEMON_098",
+    "imageUrl": "https://minotar.net/helm/DEMON_098/128.png",
+    "uuid": "1e7f4e13-7f2c-4a9c-9725-967f0584b163",
+    "tier": "LT3",
+    "points": "6",
+    "tester": false,
+    "confirmed": true,
+    "tiers": {
+      "SMP": "LT3",
+      "MACEPVP": "HT5",
+      "DIAPOT": "HT5"
+    }
+  },
+  "1273244831384207431": {
+    "gameName": "ntang_xdd",
+    "imageUrl": "https://skinrender.dev/render/ntang_xdd/body?yaw=35&pitch=12&fov=0&bg=transparent&fit=true&zoom=1.15",
+    "uuid": "8849c545-63ad-4cdd-8f9f-f447f7872a8d",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "893118412111372318": {
+    "gameName": "Gu_ntsu_Z",
+    "imageUrl": "https://skinrender.dev/render/Gu_ntsu_Z/body?yaw=35&pitch=12&fov=0&bg=transparent&fit=true&zoom=1.15",
+    "uuid": "b9a67555-4a24-406e-b843-13ba617a81c5",
+    "tier": "-",
+    "points": "0",
+    "tester": true,
+    "confirmed": true
+  },
+  "979004914858614804": {
+    "gameName": "ei448XD",
+    "imageUrl": "https://skinrender.dev/render/ei448XD/body?yaw=35&pitch=12&fov=0&bg=transparent&fit=true&zoom=1.15",
+    "uuid": "ba5a0475-f730-410e-b448-b011df492e3b",
     "tier": "-",
     "points": "0",
     "tester": true,
